@@ -102,6 +102,17 @@
                 </label>
             </div>
 
+            <div class="find-eligible-box">
+                <h4>Find Eligible Subs</h4>
+                <p>Enter the outgoing player's Comp Rank to see who can sub in:</p>
+                <div class="eligible-search">
+                    <input type="number" id="outgoingCR" placeholder="Outgoing player's CR" min="0">
+                    <button class="btn btn-primary" onclick="findEligibleSubs()">Find Subs</button>
+                    <button class="btn btn-secondary" onclick="clearEligibleFilter()">Show All</button>
+                </div>
+                <p id="eligibleStatus" class="eligible-status"></p>
+            </div>
+
             <div id="subPoolList" class="sub-pool-list">
                 <!-- Subs populated here -->
             </div>
@@ -174,6 +185,25 @@
                 <p class="import-note">
                     Last sync: <span id="lastSyncTime">Never</span>
                 </p>
+            </div>
+
+            <div class="admin-section">
+                <h3>Sub Matching Rules</h3>
+                <p>Configure the Comp Rank thresholds for sub eligibility.</p>
+                <div class="settings-row">
+                    <div class="form-row" style="max-width: 250px;">
+                        <label for="upperCRThreshold">Upper CR Threshold:</label>
+                        <input type="number" id="upperCRThreshold" placeholder="150" min="0">
+                        <small>Players above this CR are considered equal</small>
+                    </div>
+                    <div class="form-row" style="max-width: 250px;">
+                        <label for="lowerCRThreshold">Lower CR Threshold:</label>
+                        <input type="number" id="lowerCRThreshold" placeholder="30" min="0">
+                        <small>Players below this CR are considered equal</small>
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveSubRules()">Save Rules</button>
+                <p class="import-note" id="subRulesStatus"></p>
             </div>
 
             <div class="admin-section">

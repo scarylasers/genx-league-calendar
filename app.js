@@ -23,6 +23,7 @@ async function init() {
     await fetchTeams();
     await fetchWeeks();
     await fetchSubs();
+    await loadSubRules();
 
     renderWeeksList();
     renderTeamRoster();
@@ -1225,6 +1226,159 @@ async function importSubsFromPaste() {
         alert('Failed to import subs');
     }
 }
+
+// Sub matching rules
+let subRules = { upperThreshold: 150, lowerThreshold: 30 };
+let eligibleFilter = null; // When set, only show eligible subs
+
+async function loadSubRules() {
+    try {
+        const res = await fetch('/api/admin/sub-rules', { credentials: 'include' });
+        if (res.ok) {
+            subRules = await res.json();
+            // Update form fields if on admin page
+            const upperInput = document.getElementById('upperCRThreshold');
+            const lowerInput = document.getElementById('lowerCRThreshold');
+            if (upperInput) upperInput.value = subRules.upperThreshold;
+            if (lowerInput) lowerInput.value = subRules.lowerThreshold;
+        }
+    } catch (err) {
+        console.error('Failed to load sub rules:', err);
+    }
+}
+
+async function saveSubRules() {
+    const upperThreshold = parseInt(document.getElementById('upperCRThreshold').value) || 150;
+    const lowerThreshold = parseInt(document.getElementById('lowerCRThreshold').value) || 30;
+
+    try {
+        const res = await fetch('/api/admin/sub-rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ upperThreshold, lowerThreshold })
+        });
+
+        const statusEl = document.getElementById('subRulesStatus');
+        if (res.ok) {
+            subRules = { upperThreshold, lowerThreshold };
+            if (statusEl) statusEl.textContent = '✓ Rules saved!';
+        } else {
+            const err = await res.json();
+            if (statusEl) statusEl.textContent = '✗ ' + (err.error || 'Failed to save');
+        }
+    } catch (err) {
+        console.error('Save error:', err);
+        const statusEl = document.getElementById('subRulesStatus');
+        if (statusEl) statusEl.textContent = '✗ Failed to save rules';
+    }
+}
+
+async function findEligibleSubs() {
+    const outgoingCR = parseInt(document.getElementById('outgoingCR').value);
+    if (!outgoingCR && outgoingCR !== 0) {
+        alert('Please enter the outgoing player\'s Comp Rank');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/subs/eligible?cr=${outgoingCR}`, { credentials: 'include' });
+        if (res.ok) {
+            const data = await res.json();
+            eligibleFilter = {
+                outgoingCR: data.outgoingCR,
+                eligibleIds: data.eligible.map(s => s.id)
+            };
+
+            const statusEl = document.getElementById('eligibleStatus');
+            if (statusEl) {
+                statusEl.textContent = `Found ${data.eligible.length} eligible subs for CR ${outgoingCR}`;
+                if (data.outgoingCR >= data.upperThreshold) {
+                    statusEl.textContent += ` (above ${data.upperThreshold} threshold - top tier)`;
+                } else if (data.outgoingCR <= data.lowerThreshold) {
+                    statusEl.textContent += ` (below ${data.lowerThreshold} threshold - open tier)`;
+                }
+            }
+
+            renderSubPool();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to find eligible subs');
+        }
+    } catch (err) {
+        console.error('Eligible subs error:', err);
+        alert('Failed to find eligible subs');
+    }
+}
+
+function clearEligibleFilter() {
+    eligibleFilter = null;
+    document.getElementById('outgoingCR').value = '';
+    const statusEl = document.getElementById('eligibleStatus');
+    if (statusEl) statusEl.textContent = '';
+    renderSubPool();
+}
+
+// Update renderSubPool to handle eligible filter
+const originalRenderSubPool = renderSubPool;
+renderSubPool = function() {
+    const container = document.getElementById('subPoolList');
+    if (!container) return;
+
+    // Update action buttons based on login state
+    updateSubPoolActions();
+
+    // Get filter settings
+    const sortBy = document.getElementById('subSortBy')?.value || 'compRank';
+    const availableOnly = document.getElementById('showAvailableOnly')?.checked ?? true;
+
+    // Filter and sort subs
+    let filteredSubs = [...subs];
+
+    if (availableOnly) {
+        filteredSubs = filteredSubs.filter(s => s.available);
+    }
+
+    // Apply eligible filter if set
+    if (eligibleFilter) {
+        filteredSubs = filteredSubs.filter(s => eligibleFilter.eligibleIds.includes(s.id));
+    }
+
+    filteredSubs.sort((a, b) => {
+        if (sortBy === 'compRank') return (b.compRank || 0) - (a.compRank || 0);
+        if (sortBy === 'xRank') return (b.xRank || 0) - (a.xRank || 0);
+        if (sortBy === 'name') return a.name.localeCompare(b.name);
+        return 0;
+    });
+
+    if (filteredSubs.length === 0) {
+        if (eligibleFilter) {
+            container.innerHTML = '<p class="no-data">No eligible subs found for this CR. Try a higher rank or check if subs are available.</p>';
+        } else {
+            container.innerHTML = '<p class="no-data">No subs available. Be the first to register!</p>';
+        }
+        return;
+    }
+
+    container.innerHTML = filteredSubs.map(sub => `
+        <div class="sub-card ${sub.available ? 'available' : 'unavailable'} ${mySub?.id === sub.id ? 'is-me' : ''} ${eligibleFilter ? 'eligible' : ''}">
+            <div class="sub-info">
+                <span class="sub-name">${escapeHtml(sub.name)}</span>
+                ${sub.discordName ? `<span class="sub-discord">@${escapeHtml(sub.discordName)}</span>` : ''}
+            </div>
+            <div class="sub-ranks">
+                <span class="rank comp-rank" title="Comp Rank">CR: ${sub.compRank || '?'}</span>
+                <span class="rank x-rank" title="X Rank">XR: ${sub.xRank || '?'}</span>
+            </div>
+            <div class="sub-status">
+                <span class="status-badge ${sub.available ? 'available' : 'unavailable'}">
+                    ${sub.available ? '✓ Available' : '✗ Unavailable'}
+                </span>
+            </div>
+            ${sub.notes ? `<div class="sub-notes">${escapeHtml(sub.notes)}</div>` : ''}
+        </div>
+    `).join('');
+};
 
 // ==================== TABS ====================
 

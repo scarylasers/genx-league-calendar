@@ -1589,6 +1589,110 @@ func handleImportSubs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleGetSubRules(w http.ResponseWriter, r *http.Request) {
+	upperThreshold, _ := getSetting("sub_upper_cr_threshold")
+	lowerThreshold, _ := getSetting("sub_lower_cr_threshold")
+
+	upper, _ := strconv.Atoi(upperThreshold)
+	lower, _ := strconv.Atoi(lowerThreshold)
+
+	// Defaults
+	if upper == 0 {
+		upper = 150
+	}
+	if lower == 0 {
+		lower = 30
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"upperThreshold": upper,
+		"lowerThreshold": lower,
+	})
+}
+
+func handleSetSubRules(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		UpperThreshold int `json:"upperThreshold"`
+		LowerThreshold int `json:"lowerThreshold"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	setSetting("sub_upper_cr_threshold", strconv.Itoa(body.UpperThreshold))
+	setSetting("sub_lower_cr_threshold", strconv.Itoa(body.LowerThreshold))
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
+	outgoingCRStr := r.URL.Query().Get("cr")
+	outgoingCR, _ := strconv.Atoi(outgoingCRStr)
+
+	// Get thresholds
+	upperStr, _ := getSetting("sub_upper_cr_threshold")
+	lowerStr, _ := getSetting("sub_lower_cr_threshold")
+	upperThreshold, _ := strconv.Atoi(upperStr)
+	lowerThreshold, _ := strconv.Atoi(lowerStr)
+
+	if upperThreshold == 0 {
+		upperThreshold = 150
+	}
+	if lowerThreshold == 0 {
+		lowerThreshold = 30
+	}
+
+	// Get all available subs
+	allSubs, err := getAllSubs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Filter eligible subs
+	eligible := []Sub{}
+	for _, sub := range allSubs {
+		if !sub.Available {
+			continue
+		}
+
+		// Check eligibility based on CR rules
+		if isSubEligible(sub.CompRank, outgoingCR, upperThreshold, lowerThreshold) {
+			eligible = append(eligible, sub)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"eligible":       eligible,
+		"outgoingCR":     outgoingCR,
+		"upperThreshold": upperThreshold,
+		"lowerThreshold": lowerThreshold,
+	})
+}
+
+func isSubEligible(subCR, outgoingCR, upperThreshold, lowerThreshold int) bool {
+	// If outgoing player is above upper threshold, any sub above upper threshold is eligible
+	if outgoingCR >= upperThreshold {
+		return subCR >= upperThreshold || subCR <= outgoingCR
+	}
+
+	// If outgoing player is below lower threshold, any sub below lower threshold is eligible
+	if outgoingCR <= lowerThreshold {
+		return subCR <= lowerThreshold || subCR <= outgoingCR
+	}
+
+	// Normal case: sub CR must be <= outgoing CR
+	// But also allow if sub is below lower threshold (considered equal to low-rank players)
+	return subCR <= outgoingCR || subCR <= lowerThreshold
+}
+
 // ==================== ADMIN HANDLERS ====================
 
 func handleImportTeams(w http.ResponseWriter, r *http.Request) {
@@ -2418,6 +2522,9 @@ func main() {
 	r.HandleFunc("/api/subs/availability", handleUpdateSubAvailability).Methods("PUT")
 	r.HandleFunc("/api/subs/unregister", handleUnregisterSub).Methods("DELETE")
 	r.HandleFunc("/api/admin/import-subs", handleImportSubs).Methods("POST")
+	r.HandleFunc("/api/admin/sub-rules", handleGetSubRules).Methods("GET")
+	r.HandleFunc("/api/admin/sub-rules", handleSetSubRules).Methods("POST")
+	r.HandleFunc("/api/subs/eligible", handleGetEligibleSubs).Methods("GET")
 
 	// Admin routes
 	r.HandleFunc("/api/admin/import-teams", handleImportTeams).Methods("POST")

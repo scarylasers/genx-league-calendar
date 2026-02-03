@@ -1516,6 +1516,72 @@ body {
     background: #dc2626;
 }
 
+/* Find Eligible Subs */
+.find-eligible-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.find-eligible-box h4 {
+    margin: 0 0 8px 0;
+    color: var(--primary-light);
+}
+
+.find-eligible-box p {
+    margin: 0 0 12px 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.eligible-search {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.eligible-search input {
+    padding: 8px 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    width: 180px;
+}
+
+.eligible-status {
+    margin-top: 10px;
+    color: var(--accent);
+    font-size: 0.9rem;
+}
+
+.sub-card.eligible {
+    border-color: var(--accent);
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
+}
+
+/* Settings row for admin */
+.settings-row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+}
+
+.settings-row .form-row {
+    margin-bottom: 0;
+}
+
+.settings-row small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 4px;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header {
