@@ -1052,6 +1052,237 @@ body {
     color: var(--text-secondary);
 }
 
+/* Warning Box */
+.warning-box {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid var(--warning);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.warning-box p {
+    margin: 0;
+    color: var(--warning);
+}
+
+/* Week Card Enhanced */
+.week-lobby-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.lobby-badge {
+    background: var(--primary);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.lobby-badge.not-assigned {
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+
+.opponent-count {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.opponents-list {
+    margin-bottom: 15px;
+    padding: 10px 15px;
+    background: var(--bg-card);
+    border-radius: 8px;
+}
+
+.opponents-list strong {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-right: 10px;
+}
+
+.opponent-tag {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    margin: 2px;
+}
+
+.availability-section {
+    margin-bottom: 15px;
+}
+
+.my-status {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 10px;
+}
+
+.my-status.pending {
+    color: var(--warning);
+}
+
+.week-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
+}
+
+/* Team Roster Full */
+.team-roster-full {
+    padding: 20px 0;
+}
+
+.roster-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 30px;
+}
+
+.roster-column h3 {
+    color: var(--primary-light);
+    margin-bottom: 15px;
+    font-size: 1rem;
+}
+
+.roster-list {
+    list-style: none;
+}
+
+.roster-list li {
+    padding: 10px 15px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.roster-list li.is-me {
+    background: rgba(79, 70, 229, 0.2);
+    border-color: var(--primary);
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+.roster-list.subs li {
+    background: var(--bg-card);
+    color: var(--text-secondary);
+}
+
+.roster-list.subs li.is-me {
+    background: rgba(79, 70, 229, 0.15);
+    border-color: var(--primary);
+    color: var(--primary-light);
+}
+
+/* Settings Section */
+.settings-section {
+    margin-bottom: 30px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-section h3 {
+    color: var(--primary-light);
+    margin-bottom: 10px;
+}
+
+.settings-section p {
+    color: var(--text-secondary);
+    margin-bottom: 15px;
+}
+
+.help-steps {
+    padding-left: 20px;
+    margin-bottom: 20px;
+    color: var(--text-secondary);
+}
+
+.help-steps li {
+    margin-bottom: 8px;
+}
+
+/* Team Status Modal */
+.subs-needed-alert {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.status-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+}
+
+.status-column {
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.status-column h4 {
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.status-column.available h4 {
+    color: var(--accent);
+}
+
+.status-column.unavailable h4 {
+    color: var(--danger);
+}
+
+.status-column.pending h4 {
+    color: var(--warning);
+}
+
+.status-column ul {
+    list-style: none;
+}
+
+.status-column li {
+    padding: 5px 0;
+    font-size: 0.9rem;
+}
+
+.status-column li.none {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Quick Avail Modal Enhancements */
+.quick-avail-name {
+    color: var(--primary-light) !important;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 15px;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header {

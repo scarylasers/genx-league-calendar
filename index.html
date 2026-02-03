@@ -14,7 +14,7 @@
         <header class="header">
             <div class="header-text">
                 <h1>GenX League</h1>
-                <p class="subtitle">Team Availability Calendar</p>
+                <p class="subtitle">Team Availability Tracker</p>
             </div>
             <div class="header-right">
                 <div class="et-clock">
@@ -37,7 +37,6 @@
             <div id="userSection" class="auth-section" style="display: none;">
                 <img id="userAvatar" class="user-avatar" src="" alt="">
                 <span id="userName" class="user-name"></span>
-                <span id="adminBadge" class="role-badge admin-badge" style="display: none;">League Admin</span>
                 <span id="linkedInfo" class="linked-player"></span>
                 <button id="logoutBtn" class="btn btn-small btn-secondary">Logout</button>
             </div>
@@ -45,23 +44,22 @@
 
         <!-- Tabs -->
         <nav class="tabs">
-            <button class="tab active" data-tab="schedule">Schedule</button>
-            <button class="tab" data-tab="teams">Teams</button>
-            <button class="tab" data-tab="help">How To Use</button>
-            <button class="tab admin-only" data-tab="admin" style="display: none;">Admin</button>
+            <button class="tab active" data-tab="schedule">My Schedule</button>
+            <button class="tab" data-tab="team">My Team</button>
+            <button class="tab" data-tab="settings">Team Settings</button>
+            <button class="tab" data-tab="help">Help</button>
+            <button class="tab admin-only" data-tab="admin" style="display: none;">League Admin</button>
         </nav>
 
         <!-- Schedule Tab -->
         <section id="schedule" class="tab-content active">
             <div id="loginRequired" class="login-required">
                 <h3>Welcome to GenX League</h3>
-                <p>Login with Discord to view the schedule and mark your availability.</p>
+                <p>Login with Discord to view your schedule and confirm availability.</p>
             </div>
             <div id="scheduleContent" style="display: none;">
-                <div id="teamSelector" class="team-selector" style="display: none;">
-                    <label>Your Team:</label>
-                    <span id="currentTeamName" class="current-team"></span>
-                    <button class="btn btn-small" onclick="showLinkModal()">Change</button>
+                <div id="noTeamWarning" class="warning-box" style="display: none;">
+                    <p>You're not linked to a team yet. <button class="btn btn-small btn-primary" onclick="showLinkModal()">Link Your Profile</button></p>
                 </div>
                 <div id="weeksList" class="weeks-list">
                     <!-- Weeks populated here -->
@@ -69,47 +67,65 @@
             </div>
         </section>
 
-        <!-- Teams Tab -->
-        <section id="teams" class="tab-content">
-            <h2>League Teams</h2>
-            <p class="section-desc">20 teams competing in Season 7</p>
-            <div id="teamsList" class="teams-grid">
-                <!-- Teams populated here -->
+        <!-- Team Tab -->
+        <section id="team" class="tab-content">
+            <div id="teamContent">
+                <h2 id="teamNameHeader">My Team</h2>
+                <div id="teamRoster" class="team-roster-full">
+                    <!-- Roster populated here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings Tab -->
+        <section id="settings" class="tab-content">
+            <h2>Team Settings</h2>
+            <p class="section-desc">Configure your team's Discord webhook for announcements.</p>
+
+            <div class="settings-section">
+                <h3>Discord Webhook</h3>
+                <p>Set up a webhook in your team's Discord channel to receive game announcements.</p>
+                <ol class="help-steps">
+                    <li>In Discord, right-click your team channel → Edit Channel → Integrations</li>
+                    <li>Click "Create Webhook" or view existing webhooks</li>
+                    <li>Copy the Webhook URL and paste it below</li>
+                </ol>
+                <div class="form-row" style="max-width: 500px;">
+                    <label for="discordWebhook">Webhook URL:</label>
+                    <input type="text" id="discordWebhook" placeholder="https://discord.com/api/webhooks/...">
+                </div>
+                <button class="btn btn-primary" onclick="saveWebhook()">Save Webhook</button>
             </div>
         </section>
 
         <!-- Help Tab -->
         <section id="help" class="tab-content">
             <h2>How To Use</h2>
-            <div class="help-toggle">
-                <button class="help-btn active" data-view="player">For Players</button>
-                <button class="help-btn" data-view="admin">For Admins</button>
-            </div>
 
-            <div id="playerGuide" class="help-guide">
-                <h3>Player Guide</h3>
+            <div class="help-guide">
+                <h3>Quick Start</h3>
                 <ol>
                     <li><strong>Login:</strong> Click "Login with Discord" to connect your account</li>
                     <li><strong>Link Profile:</strong> Select your team and player name when prompted</li>
-                    <li><strong>Mark Availability:</strong> For each week, click "I Can Play" or "Can't Make It"</li>
-                    <li><strong>Check Lobbies:</strong> See which teams are in your lobby each week</li>
-                    <li><strong>Get Notified:</strong> Watch for Discord announcements about upcoming weeks</li>
+                    <li><strong>View Schedule:</strong> See your upcoming weeks and which teams you're playing</li>
+                    <li><strong>Confirm Availability:</strong> Click "I Can Play" or "Can't Make It" for each week</li>
+                    <li><strong>Check Team Status:</strong> See who else on your team has confirmed</li>
                 </ol>
-            </div>
 
-            <div id="adminGuide" class="help-guide" style="display: none;">
-                <h3>Admin Guide</h3>
+                <h3>Team Announcements</h3>
+                <p>Any team member can send an announcement to your team's Discord:</p>
                 <ol>
-                    <li><strong>Import Teams:</strong> Upload team rosters from the spreadsheet</li>
-                    <li><strong>Import Schedule:</strong> Set up weekly lobbies and matchups</li>
-                    <li><strong>Announce Weeks:</strong> Post to Discord asking players to mark availability</li>
-                    <li><strong>Set Webhook:</strong> Configure Discord webhook for announcements</li>
-                    <li><strong>Manage Admins:</strong> Grant admin access to other users</li>
+                    <li>Set up a webhook in Team Settings (one-time setup)</li>
+                    <li>Click "Announce to Team" on any week card</li>
+                    <li>Your team's Discord channel will get a message asking everyone to confirm</li>
                 </ol>
+
+                <h3>Need a Sub?</h3>
+                <p>If you can't make it, mark yourself as unavailable. The team will see how many subs are needed.</p>
             </div>
         </section>
 
-        <!-- Admin Tab -->
+        <!-- Admin Tab (League Admins Only) -->
         <section id="admin" class="tab-content admin-only">
             <h2>League Admin</h2>
 
@@ -123,17 +139,7 @@
             </div>
 
             <div class="admin-section">
-                <h3>Discord Settings</h3>
-                <p>Configure webhook for Discord announcements.</p>
-                <div class="form-row" style="max-width: 500px;">
-                    <label for="discordWebhook">Webhook URL:</label>
-                    <input type="text" id="discordWebhook" placeholder="https://discord.com/api/webhooks/...">
-                </div>
-                <button class="btn btn-primary" onclick="saveWebhook()">Save Webhook</button>
-            </div>
-
-            <div class="admin-section">
-                <h3>Manage Weeks</h3>
+                <h3>All Weeks</h3>
                 <div id="adminWeeksList" class="admin-weeks-list">
                     <!-- Admin weeks list -->
                 </div>
@@ -168,6 +174,19 @@
         <div id="quickAvailModal" class="modal">
             <div class="modal-content quick-avail-modal">
                 <!-- Populated dynamically -->
+            </div>
+        </div>
+
+        <!-- Team Status Modal -->
+        <div id="teamStatusModal" class="modal">
+            <div class="modal-content modal-large">
+                <h3 id="teamStatusTitle">Team Availability</h3>
+                <div id="teamStatusContent">
+                    <!-- Populated dynamically -->
+                </div>
+                <div class="modal-buttons">
+                    <button class="btn btn-secondary" onclick="closeTeamStatusModal()">Close</button>
+                </div>
             </div>
         </div>
 

@@ -1,5 +1,5 @@
-// GenX League Calendar - Frontend JavaScript
-// League format: 20 teams, 3 lobbies per week, ~7 teams per lobby
+// GenX League Calendar - Team-focused Availability Tracker
+// Any team member can manage their team
 
 // ==================== STATE ====================
 
@@ -7,6 +7,7 @@ let currentUser = null;
 let teams = [];
 let weeks = [];
 let userAvailability = {};
+let myTeam = null;
 
 // ==================== INIT ====================
 
@@ -14,15 +15,14 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
     setupTabs();
-    setupHelpToggle();
     startETClock();
 
     await checkAuth();
     await fetchTeams();
     await fetchWeeks();
 
-    renderTeamsList();
     renderWeeksList();
+    renderTeamRoster();
 
     // Handle Discord link with week parameter
     handleWeekLinkParam();
@@ -42,6 +42,7 @@ async function checkAuth() {
                     displayName: data.displayName,
                     avatar: data.avatar,
                     isAdmin: data.isAdmin,
+                    canManageTeam: data.canManageTeam,
                     teamName: data.teamName,
                     playerName: data.playerName
                 };
@@ -67,26 +68,34 @@ function showLoggedIn() {
     document.getElementById('userAvatar').src = currentUser.avatar || '';
     document.getElementById('userName').textContent = currentUser.displayName || currentUser.username;
 
-    // Show admin badge and tab if admin
+    // Show admin tab if admin
     if (currentUser.isAdmin) {
-        document.getElementById('adminBadge').style.display = 'inline';
         document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
     }
 
     // Show linked player info
     if (currentUser.teamName && currentUser.playerName) {
-        document.getElementById('linkedInfo').textContent = `(${currentUser.teamName} - ${currentUser.playerName})`;
-        document.getElementById('currentTeamName').textContent = currentUser.teamName;
-        document.getElementById('teamSelector').style.display = 'flex';
+        document.getElementById('linkedInfo').textContent = `${currentUser.teamName} - ${currentUser.playerName}`;
+        document.getElementById('noTeamWarning').style.display = 'none';
+
+        // Find my team data
+        myTeam = teams.find(t => t.name === currentUser.teamName);
+    } else {
+        document.getElementById('noTeamWarning').style.display = 'block';
     }
 
     // Show schedule content
     document.getElementById('loginRequired').style.display = 'none';
     document.getElementById('scheduleContent').style.display = 'block';
 
+    // Load webhook if team member
+    if (currentUser.canManageTeam) {
+        loadWebhookSetting();
+    }
+
     // Load admin data if admin
     if (currentUser.isAdmin) {
-        loadAdminData();
+        renderAdminWeeksList();
     }
 }
 
@@ -94,7 +103,6 @@ function showLoggedOut() {
     currentUser = null;
     document.getElementById('loginSection').style.display = 'block';
     document.getElementById('userSection').style.display = 'none';
-    document.getElementById('adminBadge').style.display = 'none';
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
 
     document.getElementById('loginRequired').style.display = 'block';
@@ -152,38 +160,60 @@ async function fetchUserAvailability() {
     }
 }
 
-// ==================== TEAMS DISPLAY ====================
+async function fetchTeamWeekStatus(weekId) {
+    try {
+        const res = await fetch(`/api/team-availability/${weekId}`, { credentials: 'include' });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (err) {
+        console.error('Failed to fetch team status:', err);
+    }
+    return null;
+}
 
-function renderTeamsList() {
-    const container = document.getElementById('teamsList');
-    if (!container) return;
+// ==================== TEAM ROSTER ====================
 
-    if (teams.length === 0) {
-        container.innerHTML = '<p class="no-data">No teams loaded yet.</p>';
+function renderTeamRoster() {
+    const container = document.getElementById('teamRoster');
+    const header = document.getElementById('teamNameHeader');
+
+    if (!currentUser || !currentUser.teamName) {
+        header.textContent = 'My Team';
+        container.innerHTML = '<p class="no-data">Link your profile to see your team roster.</p>';
         return;
     }
 
-    container.innerHTML = teams.map(team => `
-        <div class="team-card">
-            <h3 class="team-name">${escapeHtml(team.name)}</h3>
-            <div class="team-roster">
-                <div class="roster-section">
-                    <h4>Players</h4>
-                    <ul class="player-list">
-                        ${(team.players || []).map(p => `<li>${escapeHtml(p)}</li>`).join('')}
-                    </ul>
-                </div>
-                ${team.subs && team.subs.length > 0 ? `
-                <div class="roster-section">
-                    <h4>Subs</h4>
-                    <ul class="player-list subs">
-                        ${team.subs.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
-                    </ul>
-                </div>
-                ` : ''}
+    const team = teams.find(t => t.name === currentUser.teamName);
+    if (!team) {
+        header.textContent = currentUser.teamName;
+        container.innerHTML = '<p class="no-data">Team data not found.</p>';
+        return;
+    }
+
+    header.textContent = team.name;
+    myTeam = team;
+
+    container.innerHTML = `
+        <div class="roster-columns">
+            <div class="roster-column">
+                <h3>Main Roster</h3>
+                <ul class="roster-list">
+                    ${(team.players || []).map(p => `
+                        <li class="${p === currentUser.playerName ? 'is-me' : ''}">${escapeHtml(p)}</li>
+                    `).join('')}
+                </ul>
+            </div>
+            <div class="roster-column">
+                <h3>Substitutes</h3>
+                <ul class="roster-list subs">
+                    ${(team.subs || []).map(s => `
+                        <li class="${s === currentUser.playerName ? 'is-me' : ''}">${escapeHtml(s)}</li>
+                    `).join('')}
+                </ul>
             </div>
         </div>
-    `).join('');
+    `;
 }
 
 // ==================== WEEKS/SCHEDULE DISPLAY ====================
@@ -197,16 +227,24 @@ function renderWeeksList() {
         return;
     }
 
-    container.innerHTML = weeks.map(week => renderWeekCard(week)).join('');
+    // Filter to only show weeks relevant to user's team
+    const userTeam = currentUser?.teamName;
+
+    container.innerHTML = weeks.map(week => renderWeekCard(week, userTeam)).join('');
 }
 
-function renderWeekCard(week) {
-    const userTeam = currentUser?.teamName;
+function renderWeekCard(week, userTeam) {
     const userLobby = userTeam ? findUserLobby(week, userTeam) : null;
     const availability = userAvailability[week.id];
 
     const dateStr = week.date ? formatDate(week.date) : 'TBD';
     const timeStr = week.time || '8:00 PM ET';
+
+    // Get opponents if in a lobby
+    let opponents = [];
+    if (userLobby) {
+        opponents = userLobby.teams.filter(t => t !== userTeam);
+    }
 
     return `
         <div class="week-card ${availability !== undefined ? (availability ? 'available' : 'unavailable') : ''}" data-week-id="${week.id}">
@@ -216,50 +254,50 @@ function renderWeekCard(week) {
             </div>
 
             ${userLobby ? `
-                <div class="user-lobby-info">
-                    <span class="lobby-label">Your Lobby:</span>
-                    <span class="lobby-name">${escapeHtml(userLobby.name)}</span>
+                <div class="week-lobby-info">
+                    <span class="lobby-badge">${escapeHtml(userLobby.name)}</span>
+                    <span class="opponent-count">${opponents.length} opponents</span>
                 </div>
-                <div class="lobby-teams">
-                    ${userLobby.teams.map(t => `
-                        <span class="lobby-team ${t === userTeam ? 'your-team' : ''}">${escapeHtml(t)}</span>
-                    `).join('')}
+                <div class="opponents-list">
+                    <strong>Playing against:</strong>
+                    ${opponents.map(t => `<span class="opponent-tag">${escapeHtml(t)}</span>`).join('')}
+                </div>
+            ` : userTeam ? `
+                <div class="week-lobby-info">
+                    <span class="lobby-badge not-assigned">Lobby TBD</span>
                 </div>
             ` : ''}
 
             ${currentUser && currentUser.teamName ? `
-                <div class="availability-buttons">
-                    <button class="btn ${availability === true ? 'btn-success active' : 'btn-outline'}"
-                            onclick="setAvailability('${week.id}', true)">
-                        I Can Play
-                    </button>
-                    <button class="btn ${availability === false ? 'btn-danger active' : 'btn-outline'}"
-                            onclick="setAvailability('${week.id}', false)">
-                        Can't Make It
-                    </button>
+                <div class="availability-section">
+                    <div class="availability-buttons">
+                        <button class="btn ${availability === true ? 'btn-success active' : 'btn-outline'}"
+                                onclick="setAvailability('${week.id}', true)">
+                            ✓ I Can Play
+                        </button>
+                        <button class="btn ${availability === false ? 'btn-danger active' : 'btn-outline'}"
+                                onclick="setAvailability('${week.id}', false)">
+                            ✗ Can't Make It
+                        </button>
+                    </div>
+                    ${availability !== undefined ? `
+                        <p class="my-status">Your status: <strong>${availability ? '✓ Available' : '✗ Unavailable'}</strong></p>
+                    ` : `
+                        <p class="my-status pending">Please confirm your availability</p>
+                    `}
                 </div>
-                ${availability !== undefined ? `
-                    <p class="availability-status">
-                        You marked: <strong>${availability ? 'Available' : 'Unavailable'}</strong>
-                    </p>
-                ` : ''}
-            ` : ''}
 
-            <details class="all-lobbies">
-                <summary>View All Lobbies</summary>
-                <div class="lobbies-grid">
-                    ${(week.lobbies || []).map(lobby => `
-                        <div class="lobby-card">
-                            <h4>${escapeHtml(lobby.name)}</h4>
-                            <ul class="lobby-team-list">
-                                ${(lobby.teams || []).map(t => `
-                                    <li class="${t === userTeam ? 'your-team' : ''}">${escapeHtml(t)}</li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                    `).join('')}
+                <div class="week-actions">
+                    <button class="btn btn-small btn-secondary" onclick="showTeamStatus('${week.id}')">
+                        👥 Team Status
+                    </button>
+                    ${currentUser.canManageTeam ? `
+                        <button class="btn btn-small btn-primary" onclick="announceWeek('${week.id}')">
+                            📢 Announce to Team
+                        </button>
+                    ` : ''}
                 </div>
-            </details>
+            ` : ''}
         </div>
     `;
 }
@@ -297,6 +335,76 @@ async function setAvailability(weekId, available) {
         console.error('Failed to set availability:', err);
         alert('Failed to update availability');
     }
+}
+
+// ==================== TEAM STATUS MODAL ====================
+
+async function showTeamStatus(weekId) {
+    const week = weeks.find(w => w.id === weekId);
+    if (!week) return;
+
+    const modal = document.getElementById('teamStatusModal');
+    const title = document.getElementById('teamStatusTitle');
+    const content = document.getElementById('teamStatusContent');
+
+    title.textContent = `${currentUser.teamName} - ${week.name}`;
+    content.innerHTML = '<p>Loading...</p>';
+    modal.classList.add('active');
+
+    const status = await fetchTeamWeekStatus(weekId);
+    if (!status) {
+        content.innerHTML = '<p>Failed to load team status.</p>';
+        return;
+    }
+
+    const availableList = status.available || [];
+    const unavailableList = status.unavailable || [];
+    const notRespondedList = status.notResponded || [];
+    const subsNeeded = status.subsNeeded || 0;
+
+    content.innerHTML = `
+        ${subsNeeded > 0 ? `
+            <div class="subs-needed-alert">
+                ⚠️ <strong>${subsNeeded} sub(s) needed!</strong>
+            </div>
+        ` : ''}
+
+        <div class="status-columns">
+            <div class="status-column available">
+                <h4>✓ Available (${availableList.length})</h4>
+                <ul>
+                    ${availableList.length > 0 ?
+                        availableList.map(p => `<li>${escapeHtml(p)}</li>`).join('') :
+                        '<li class="none">No responses yet</li>'
+                    }
+                </ul>
+            </div>
+
+            <div class="status-column unavailable">
+                <h4>✗ Unavailable (${unavailableList.length})</h4>
+                <ul>
+                    ${unavailableList.length > 0 ?
+                        unavailableList.map(p => `<li>${escapeHtml(p)}</li>`).join('') :
+                        '<li class="none">None</li>'
+                    }
+                </ul>
+            </div>
+
+            <div class="status-column pending">
+                <h4>⏳ No Response (${notRespondedList.length})</h4>
+                <ul>
+                    ${notRespondedList.length > 0 ?
+                        notRespondedList.map(p => `<li>${escapeHtml(p)}</li>`).join('') :
+                        '<li class="none">Everyone responded!</li>'
+                    }
+                </ul>
+            </div>
+        </div>
+    `;
+}
+
+function closeTeamStatusModal() {
+    document.getElementById('teamStatusModal').classList.remove('active');
 }
 
 // ==================== LINK PROFILE ====================
@@ -368,10 +476,12 @@ async function linkPlayer() {
         if (res.ok) {
             currentUser.teamName = teamName;
             currentUser.playerName = playerName;
+            currentUser.canManageTeam = true;
             closeLinkModal();
             showLoggedIn();
             await fetchUserAvailability();
             renderWeeksList();
+            renderTeamRoster();
         } else {
             const err = await res.json();
             alert(err.error || 'Failed to link profile');
@@ -421,7 +531,7 @@ function showQuickAvailabilityModal(weekId) {
     if (!currentUser) {
         content.innerHTML = `
             <h3>${escapeHtml(week.name)}</h3>
-            <p>Login to mark your availability for this week.</p>
+            <p>Login to confirm your availability.</p>
             <div class="modal-buttons">
                 <button class="btn btn-discord" onclick="loginForWeek('${weekId}')">
                     <svg class="discord-icon" viewBox="0 0 24 24" fill="currentColor">
@@ -435,7 +545,7 @@ function showQuickAvailabilityModal(weekId) {
     } else if (!currentUser.teamName) {
         content.innerHTML = `
             <h3>${escapeHtml(week.name)}</h3>
-            <p>Please link your profile to mark availability.</p>
+            <p>Link your profile to confirm availability.</p>
             <div class="modal-buttons">
                 <button class="btn btn-primary" onclick="closeQuickAvailModal(); showLinkModal();">Link Profile</button>
                 <button class="btn btn-secondary" onclick="closeQuickAvailModal()">Cancel</button>
@@ -447,20 +557,21 @@ function showQuickAvailabilityModal(weekId) {
 
         content.innerHTML = `
             <h3>${escapeHtml(week.name)}</h3>
-            <p class="quick-avail-player">${escapeHtml(currentUser.teamName)} - ${escapeHtml(currentUser.playerName)}</p>
+            <p class="quick-avail-player">${escapeHtml(currentUser.teamName)}</p>
+            <p class="quick-avail-name">${escapeHtml(currentUser.playerName)}</p>
             ${hasResponded ? `
-                <p class="current-response">Current response: <strong>${availability ? 'Available' : 'Unavailable'}</strong></p>
+                <p class="current-response">Current: <strong>${availability ? '✓ Available' : '✗ Unavailable'}</strong></p>
             ` : `
                 <p>Can you play this week?</p>
             `}
             <div class="modal-buttons">
                 <button class="btn ${availability === true ? 'btn-success active' : 'btn-success'}"
                         onclick="quickSetAvailability('${weekId}', true)">
-                    I Can Play
+                    ✓ I Can Play
                 </button>
                 <button class="btn ${availability === false ? 'btn-danger active' : 'btn-danger'}"
                         onclick="quickSetAvailability('${weekId}', false)">
-                    Can't Make It
+                    ✗ Can't Make It
                 </button>
             </div>
             <button class="btn btn-link" onclick="closeQuickAvailModal()">Close</button>
@@ -484,12 +595,7 @@ function loginForWeek(weekId) {
     window.location.href = '/auth/discord';
 }
 
-// ==================== ADMIN FUNCTIONS ====================
-
-async function loadAdminData() {
-    loadWebhookSetting();
-    renderAdminWeeksList();
-}
+// ==================== TEAM WEBHOOK/ANNOUNCE ====================
 
 async function loadWebhookSetting() {
     try {
@@ -515,7 +621,7 @@ async function saveWebhook() {
         });
 
         if (res.ok) {
-            alert('Webhook saved successfully!');
+            alert('Webhook saved!');
         } else {
             const err = await res.json();
             alert(err.error || 'Failed to save webhook');
@@ -526,35 +632,11 @@ async function saveWebhook() {
     }
 }
 
-function renderAdminWeeksList() {
-    const container = document.getElementById('adminWeeksList');
-    if (!container) return;
-
-    if (weeks.length === 0) {
-        container.innerHTML = '<p class="no-data">No weeks imported yet. Use "Import Schedule" to add weeks.</p>';
-        return;
-    }
-
-    container.innerHTML = weeks.map(week => `
-        <div class="admin-week-item">
-            <div class="admin-week-info">
-                <span class="admin-week-name">${escapeHtml(week.name)}</span>
-                <span class="admin-week-date">${week.date ? formatDate(week.date) : 'No date set'}</span>
-            </div>
-            <div class="admin-week-actions">
-                <button class="btn btn-small btn-primary" onclick="announceWeek('${week.id}')">
-                    Announce
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
 async function announceWeek(weekId) {
     const week = weeks.find(w => w.id === weekId);
     if (!week) return;
 
-    if (!confirm(`Announce ${week.name} to Discord?\n\nThis will post asking players to mark their availability.`)) {
+    if (!confirm(`Send announcement for ${week.name} to your team's Discord?`)) {
         return;
     }
 
@@ -567,7 +649,7 @@ async function announceWeek(weekId) {
         });
 
         if (res.ok) {
-            alert('Announced to Discord!');
+            alert('Announcement sent to Discord!');
         } else {
             const err = await res.json();
             alert(err.error || 'Failed to announce');
@@ -578,8 +660,29 @@ async function announceWeek(weekId) {
     }
 }
 
-// ==================== IMPORT FUNCTIONS ====================
+// ==================== ADMIN FUNCTIONS ====================
 
+function renderAdminWeeksList() {
+    const container = document.getElementById('adminWeeksList');
+    if (!container) return;
+
+    if (weeks.length === 0) {
+        container.innerHTML = '<p class="no-data">No weeks imported yet.</p>';
+        return;
+    }
+
+    container.innerHTML = weeks.map(week => `
+        <div class="admin-week-item">
+            <div class="admin-week-info">
+                <span class="admin-week-name">${escapeHtml(week.name)}</span>
+                <span class="admin-week-date">${week.date ? formatDate(week.date) : 'No date'}</span>
+                <span class="admin-week-lobbies">${(week.lobbies || []).length} lobbies</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Import functions
 function showImportTeamsModal() {
     document.getElementById('importTeamsModal').classList.add('active');
 }
@@ -611,18 +714,16 @@ async function importTeams() {
 
         if (res.ok) {
             const result = await res.json();
-            alert(`Successfully imported ${result.count} teams!`);
+            alert(`Imported ${result.count} teams!`);
             closeImportTeamsModal();
             await fetchTeams();
-            renderTeamsList();
-            populateTeamSelect();
+            renderTeamRoster();
         } else {
             const err = await res.json();
-            alert(err.error || 'Failed to import teams');
+            alert(err.error || 'Failed to import');
         }
     } catch (err) {
-        console.error('Import error:', err);
-        alert('Invalid JSON format. Please check your data.');
+        alert('Invalid JSON format');
     }
 }
 
@@ -641,18 +742,17 @@ async function importWeeks() {
 
         if (res.ok) {
             const result = await res.json();
-            alert(`Successfully imported ${result.count} weeks!`);
+            alert(`Imported ${result.count} weeks!`);
             closeImportWeeksModal();
             await fetchWeeks();
             renderWeeksList();
             renderAdminWeeksList();
         } else {
             const err = await res.json();
-            alert(err.error || 'Failed to import weeks');
+            alert(err.error || 'Failed to import');
         }
     } catch (err) {
-        console.error('Import error:', err);
-        alert('Invalid JSON format. Please check your data.');
+        alert('Invalid JSON format');
     }
 }
 
@@ -663,29 +763,11 @@ function setupTabs() {
         tab.addEventListener('click', () => {
             const targetId = tab.dataset.tab;
 
-            // Update tab buttons
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
 
-            // Update tab content
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             document.getElementById(targetId)?.classList.add('active');
-        });
-    });
-}
-
-// ==================== HELP TOGGLE ====================
-
-function setupHelpToggle() {
-    document.querySelectorAll('.help-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const view = btn.dataset.view;
-
-            document.querySelectorAll('.help-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            document.getElementById('playerGuide').style.display = view === 'player' ? 'block' : 'none';
-            document.getElementById('adminGuide').style.display = view === 'admin' ? 'block' : 'none';
         });
     });
 }

@@ -171,6 +171,17 @@ func setSetting(key, value string) error {
 	return err
 }
 
+// Team-specific settings (like webhook per team)
+func getTeamSetting(teamName, key string) (string, error) {
+	settingKey := fmt.Sprintf("team:%s:%s", teamName, key)
+	return getSetting(settingKey)
+}
+
+func setTeamSetting(teamName, key, value string) error {
+	settingKey := fmt.Sprintf("team:%s:%s", teamName, key)
+	return setSetting(settingKey, value)
+}
+
 // ==================== TEAM FUNCTIONS ====================
 
 func getAllTeams() ([]Team, error) {
@@ -607,6 +618,9 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Any linked team member can manage their team
+	canManageTeam := teamName != "" && session.PlayerName != ""
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"authenticated": true,
 		"discordId":     session.DiscordID,
@@ -616,7 +630,7 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		"teamName":      teamName,
 		"playerName":    session.PlayerName,
 		"isAdmin":       session.IsAdmin,
-		"isManager":     session.IsManager,
+		"canManageTeam": canManageTeam,
 	})
 }
 
@@ -809,17 +823,83 @@ func handleGetAllAvailability(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// Get full team availability for a week (for team members to see who's confirmed)
+func handleGetTeamWeekAvailability(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || session.TeamID == "" {
+		writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
+		return
+	}
+
+	vars := mux.Vars(r)
+	weekID := vars["weekId"]
+
+	avail, err := getTeamAvailability(session.TeamID, weekID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Get team roster for context
+	team, _ := getTeamByName(session.TeamID)
+	if team == nil {
+		team, _ = getTeamByID(session.TeamID)
+	}
+
+	roster := []string{}
+	subs := []string{}
+	if team != nil {
+		roster = team.Players
+		subs = team.Subs
+	}
+
+	// Figure out who hasn't responded
+	responded := make(map[string]bool)
+	for _, p := range avail.Available {
+		responded[p] = true
+	}
+	for _, p := range avail.Unavailable {
+		responded[p] = true
+	}
+
+	notResponded := []string{}
+	for _, p := range roster {
+		if !responded[p] {
+			notResponded = append(notResponded, p)
+		}
+	}
+	for _, s := range subs {
+		if !responded[s] {
+			notResponded = append(notResponded, s)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"weekId":       weekID,
+		"teamName":     session.TeamID,
+		"available":    avail.Available,
+		"unavailable":  avail.Unavailable,
+		"notResponded": notResponded,
+		"subsNeeded":   avail.SubsNeeded,
+		"roster":       roster,
+		"subs":         subs,
+	})
+}
+
 // ==================== DISCORD WEBHOOK ====================
 
 func handleGetWebhook(w http.ResponseWriter, r *http.Request) {
-	webhook, _ := getSetting("discord_webhook")
-	response := map[string]interface{}{
-		"configured": webhook != "",
+	session := getSessionFromRequest(r)
+	if session == nil || session.TeamID == "" {
+		writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
+		return
 	}
 
-	session := getSessionFromRequest(r)
-	if session != nil && session.IsAdmin && webhook != "" {
-		response["webhookUrl"] = webhook
+	// Get team-specific webhook
+	webhook, _ := getTeamSetting(session.TeamID, "webhook")
+	response := map[string]interface{}{
+		"configured": webhook != "",
+		"webhookUrl": webhook,
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -827,8 +907,8 @@ func handleGetWebhook(w http.ResponseWriter, r *http.Request) {
 
 func handleSetWebhook(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
-	if session == nil || !session.IsAdmin {
-		writeError(w, http.StatusForbidden, "Admin access required")
+	if session == nil || session.TeamID == "" {
+		writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
 		return
 	}
 
@@ -840,7 +920,8 @@ func handleSetWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := setSetting("discord_webhook", body.WebhookUrl); err != nil {
+	// Save team-specific webhook
+	if err := setTeamSetting(session.TeamID, "webhook", body.WebhookUrl); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -850,8 +931,8 @@ func handleSetWebhook(w http.ResponseWriter, r *http.Request) {
 
 func handleAnnounceWeek(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
-	if session == nil || !session.IsAdmin {
-		writeError(w, http.StatusForbidden, "Admin access required")
+	if session == nil || session.TeamID == "" {
+		writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
 		return
 	}
 
@@ -864,17 +945,18 @@ func handleAnnounceWeek(w http.ResponseWriter, r *http.Request) {
 	}
 	weekID := body.WeekID
 
-	webhook, _ := getSetting("discord_webhook")
+	// Get team-specific webhook
+	webhook, _ := getTeamSetting(session.TeamID, "webhook")
 	if webhook == "" {
-		writeError(w, http.StatusBadRequest, "Discord webhook not configured")
+		writeError(w, http.StatusBadRequest, "Team webhook not configured. Set it in Team Settings.")
 		return
 	}
 
 	weeks, _ := getAllWeeks()
 	var week *Week
-	for _, w := range weeks {
-		if w.ID == weekID {
-			week = &w
+	for _, wk := range weeks {
+		if wk.ID == weekID {
+			week = &wk
 			break
 		}
 	}
@@ -883,44 +965,89 @@ func handleAnnounceWeek(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Find which lobby this team is in
+	teamName := session.TeamID
+	var userLobby *Lobby
+	for _, lobby := range week.Lobbies {
+		for _, t := range lobby.Teams {
+			if t == teamName {
+				userLobby = &lobby
+				break
+			}
+		}
+		if userLobby != nil {
+			break
+		}
+	}
+
 	siteURL := baseURL
 	if siteURL == "" {
 		siteURL = "https://genx-league-calendar.onrender.com"
 	}
 	weekLink := siteURL + "/?week=" + weekID
 
-	// Build lobby info
-	var lobbyFields []map[string]interface{}
-	for _, lobby := range week.Lobbies {
-		teamList := strings.Join(lobby.Teams, "\n")
-		lobbyFields = append(lobbyFields, map[string]interface{}{
-			"name":   lobby.Name,
-			"value":  teamList,
+	// Get current availability for the team
+	avail, _ := getTeamAvailability(teamName, weekID)
+
+	// Build team-specific message
+	dateStr := week.Date
+	if dateStr == "" {
+		dateStr = "TBD"
+	}
+	timeStr := week.Time
+	if timeStr == "" {
+		timeStr = "8:00 PM ET"
+	}
+
+	var fields []map[string]interface{}
+
+	// Add lobby info if found
+	if userLobby != nil {
+		opponents := []string{}
+		for _, t := range userLobby.Teams {
+			if t != teamName {
+				opponents = append(opponents, t)
+			}
+		}
+		fields = append(fields, map[string]interface{}{
+			"name":   "🎮 " + userLobby.Name,
+			"value":  "Playing against:\n" + strings.Join(opponents, "\n"),
 			"inline": true,
 		})
 	}
 
+	// Add current availability status
+	availCount := len(avail.Available)
+	unavailCount := len(avail.Unavailable)
+	statusText := fmt.Sprintf("✅ Available: %d\n❌ Unavailable: %d", availCount, unavailCount)
+	if avail.SubsNeeded > 0 {
+		statusText += fmt.Sprintf("\n⚠️ **Need %d sub(s)!**", avail.SubsNeeded)
+	}
+	fields = append(fields, map[string]interface{}{
+		"name":   "📊 Current Status",
+		"value":  statusText,
+		"inline": true,
+	})
+
+	// Add link
+	fields = append(fields, map[string]interface{}{
+		"name":   "✅ Confirm Your Availability",
+		"value":  fmt.Sprintf("[Click here to respond](%s)", weekLink),
+		"inline": false,
+	})
+
 	embed := map[string]interface{}{
-		"title":       fmt.Sprintf("📢 %s Schedule", week.Name),
-		"description": "Check your team's lobby and mark your availability!",
+		"title":       fmt.Sprintf("📢 %s - %s @ %s", week.Name, dateStr, timeStr),
+		"description": fmt.Sprintf("**%s** - Please confirm if you can play!", teamName),
 		"color":       0xf59e0b,
-		"fields":      lobbyFields,
-		"footer":      map[string]string{"text": "GenX League • Please respond ASAP!"},
+		"fields":      fields,
+		"footer":      map[string]string{"text": "GenX League • Reply ASAP!"},
 		"timestamp":   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	// Add link field
-	fields := embed["fields"].([]map[string]interface{})
-	fields = append(fields, map[string]interface{}{
-		"name":   "✅ Mark Availability",
-		"value":  fmt.Sprintf("[Click here to mark if you can play](%s)", weekLink),
-		"inline": false,
-	})
-	embed["fields"] = fields
-
 	payload := map[string]interface{}{
-		"username": "GenX League Bot",
-		"content":  "📢 **" + week.Name + " is coming up!** Check your availability!",
+		"username": "GenX League",
+		"content":  "@everyone " + week.Name + " is coming up! Please confirm your availability.",
 		"embeds":   []map[string]interface{}{embed},
 	}
 
@@ -933,8 +1060,8 @@ func handleAnnounceWeek(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		writeError(w, http.StatusInternalServerError, "Discord API error: "+string(body))
+		respBody, _ := io.ReadAll(resp.Body)
+		writeError(w, http.StatusInternalServerError, "Discord API error: "+string(respBody))
 		return
 	}
 
@@ -1090,6 +1217,7 @@ func main() {
 	r.HandleFunc("/api/availability", handleGetAllAvailability).Methods("GET")
 	r.HandleFunc("/api/availability/{teamId}/{weekId}", handleGetAvailability).Methods("GET")
 	r.HandleFunc("/api/availability", handleSetAvailability).Methods("POST")
+	r.HandleFunc("/api/team-availability/{weekId}", handleGetTeamWeekAvailability).Methods("GET")
 	r.HandleFunc("/api/link-player", handleLinkPlayer).Methods("POST")
 	r.HandleFunc("/api/webhook", handleGetWebhook).Methods("GET")
 	r.HandleFunc("/api/webhook", handleSetWebhook).Methods("POST")
