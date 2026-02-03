@@ -105,13 +105,25 @@ func initDB() error {
 		return fmt.Errorf("DATABASE_URL not set")
 	}
 
+	// Add search_path to connection string for genx_league schema
+	if strings.Contains(dbURL, "?") {
+		dbURL += "&search_path=genx_league"
+	} else {
+		dbURL += "?search_path=genx_league"
+	}
+
 	var err error
 	db, err = sql.Open("postgres", dbURL)
 	if err != nil {
 		return err
 	}
 
-	// Create tables
+	// Create schema for genx_league to keep tables separate from hopzle
+	if _, err := db.Exec(`CREATE SCHEMA IF NOT EXISTS genx_league`); err != nil {
+		return fmt.Errorf("failed to create schema: %v", err)
+	}
+
+	// Create tables (will be in genx_league schema due to search_path)
 	tables := []string{
 		`CREATE TABLE IF NOT EXISTS teams (
 			id TEXT PRIMARY KEY,
@@ -159,6 +171,7 @@ func initDB() error {
 		}
 	}
 
+	log.Println("Database initialized with genx_league schema")
 	return nil
 }
 
