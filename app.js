@@ -2184,48 +2184,57 @@ async function handleScheduleFileUpload(event) {
             return;
         }
 
-        // Skip header row if it looks like a header
-        let dataRows = rows;
-        const firstRow = rows[0];
-        if (firstRow[0]?.toLowerCase().includes('week') && firstRow[1]?.toLowerCase().includes('lobby')) {
-            dataRows = rows.slice(1);
+        let weeksData = [];
+
+        // Check if this is GenX Scoring Sheet format (has "Round" and "Group" patterns)
+        const isGenXFormat = rows.some(row => row[1]?.includes('Round') || row[1]?.includes('Group'));
+
+        if (isGenXFormat) {
+            // Parse GenX Scoring Sheet format
+            weeksData = parseGenXScoringSheet(rows, file.name);
+        } else {
+            // Standard format: Week, Lobby, Team 1, Team 2...
+            let dataRows = rows;
+            const firstRow = rows[0];
+            if (firstRow[0]?.toLowerCase().includes('week') && firstRow[1]?.toLowerCase().includes('lobby')) {
+                dataRows = rows.slice(1);
+            }
+
+            const weekMap = new Map();
+            dataRows.forEach(row => {
+                const weekName = row[0];
+                const lobbyName = row[1];
+                if (!weekName || !lobbyName) return;
+
+                const teams = [];
+                for (let i = 2; i < row.length; i++) {
+                    if (row[i] && row[i].trim()) teams.push(row[i].trim());
+                }
+
+                if (!weekMap.has(weekName)) {
+                    weekMap.set(weekName, {
+                        id: weekName.toLowerCase().replace(/\s+/g, '-'),
+                        name: weekName,
+                        number: weekMap.size + 1,
+                        lobbies: []
+                    });
+                }
+
+                weekMap.get(weekName).lobbies.push({
+                    name: lobbyName,
+                    teams: teams
+                });
+            });
+
+            weeksData = Array.from(weekMap.values());
         }
 
-        // Group by week
-        const weekMap = new Map();
-        dataRows.forEach(row => {
-            const weekName = row[0];
-            const lobbyName = row[1];
-            if (!weekName || !lobbyName) return;
-
-            const teams = [];
-            for (let i = 2; i < row.length; i++) {
-                if (row[i] && row[i].trim()) teams.push(row[i].trim());
-            }
-
-            if (!weekMap.has(weekName)) {
-                weekMap.set(weekName, {
-                    id: weekName.toLowerCase().replace(/\s+/g, '-'),
-                    name: weekName,
-                    number: weekMap.size + 1,
-                    lobbies: []
-                });
-            }
-
-            weekMap.get(weekName).lobbies.push({
-                name: lobbyName,
-                teams: teams
-            });
-        });
-
-        const weeksData = Array.from(weekMap.values());
-
         if (weeksData.length === 0) {
-            statusEl.innerHTML = '<span class="sync-error">Could not parse any weeks from file</span>';
+            statusEl.innerHTML = '<span class="sync-error">Could not parse any weeks from file. Make sure format is correct.</span>';
             return;
         }
 
-        statusEl.innerHTML = `<span class="sync-pending">Importing ${weeksData.length} weeks...</span>`;
+        statusEl.innerHTML = `<span class="sync-pending">Importing ${weeksData.length} weeks with ${weeksData.reduce((sum, w) => sum + w.lobbies.length, 0)} lobbies...</span>`;
 
         const res = await fetch('/api/admin/import-weeks', {
             method: 'POST',
@@ -2251,6 +2260,132 @@ async function handleScheduleFileUpload(event) {
     }
 
     event.target.value = '';
+}
+
+// Parse GenX Scoring Sheet format
+// Format has sections like:
+// Row: ,Round,1
+// Row: ,Group ,1
+// Row: ,Lobby Information,...,Teams,...
+// Row: ,,,,,,,(header row)
+// Row: ,Lobby  ,Group 1,,,,,TeamName1,...
+// Row: ,Time,Sunday @ 9pm,,,,,TeamName2,...
+// Row: ,Division,Gen-X,,,,,TeamName3,...
+// Row: ,Host,HostName,,,,,TeamName4,...
+// Row: ,Streamer,StreamerName,...
+// Row: ,Date,5/4/2025,...
+function parseGenXScoringSheet(rows, fileName) {
+    const lobbies = [];
+    let currentLobby = null;
+
+    // Extract week name from filename if possible (e.g., "Week 1.csv")
+    let weekName = 'Week 1';
+    const weekMatch = fileName.match(/week\s*(\d+)/i);
+    if (weekMatch) {
+        weekName = `Week ${weekMatch[1]}`;
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+
+        // Check for "Group ,X" pattern to start a new group section
+        if (row[1]?.trim() === 'Group' || row[1]?.trim().startsWith('Group ')) {
+            // New group starting - prepare to capture lobby info
+            currentLobby = {
+                name: '',
+                teams: [],
+                time: '',
+                date: '',
+                host: '',
+                streamer: ''
+            };
+            continue;
+        }
+
+        // Look for "Lobby" row - captures lobby name and first team
+        if (row[1]?.trim().startsWith('Lobby')) {
+            if (currentLobby) {
+                currentLobby.name = row[2]?.trim() || `Lobby ${lobbies.length + 1}`;
+                // Team name is in column G (index 6)
+                if (row[6]?.trim() && !row[6].includes('#NAME')) {
+                    currentLobby.teams.push(row[6].trim());
+                }
+            }
+            continue;
+        }
+
+        // "Time" row - captures time and second team
+        if (row[1]?.trim() === 'Time') {
+            if (currentLobby) {
+                currentLobby.time = row[2]?.trim() || '';
+                if (row[6]?.trim() && !row[6].includes('#NAME')) {
+                    currentLobby.teams.push(row[6].trim());
+                }
+            }
+            continue;
+        }
+
+        // "Division" row - captures third team
+        if (row[1]?.trim() === 'Division') {
+            if (currentLobby && row[6]?.trim() && !row[6].includes('#NAME')) {
+                currentLobby.teams.push(row[6].trim());
+            }
+            continue;
+        }
+
+        // "Host" row - captures host and fourth team
+        if (row[1]?.trim() === 'Host') {
+            if (currentLobby) {
+                currentLobby.host = row[2]?.trim() || '';
+                if (row[6]?.trim() && !row[6].includes('#NAME')) {
+                    currentLobby.teams.push(row[6].trim());
+                }
+            }
+            continue;
+        }
+
+        // "Streamer" row - captures streamer
+        if (row[1]?.trim() === 'Streamer') {
+            if (currentLobby) {
+                currentLobby.streamer = row[2]?.trim() || '';
+            }
+            continue;
+        }
+
+        // "Date" row - captures date, finalize this lobby
+        if (row[1]?.trim() === 'Date') {
+            if (currentLobby) {
+                currentLobby.date = row[2]?.trim() || '';
+
+                // Only add if we have teams
+                if (currentLobby.teams.length > 0) {
+                    lobbies.push({
+                        name: currentLobby.name,
+                        teams: currentLobby.teams,
+                        host: currentLobby.host,
+                        streamer: currentLobby.streamer
+                    });
+                }
+                currentLobby = null;
+            }
+            continue;
+        }
+    }
+
+    if (lobbies.length === 0) {
+        return [];
+    }
+
+    // Group lobbies by date/time into weeks if needed
+    // For now, put all lobbies into one week
+    return [{
+        id: weekName.toLowerCase().replace(/\s+/g, '-'),
+        name: weekName,
+        number: 1,
+        date: lobbies[0]?.date || '',
+        time: lobbies[0]?.time || '',
+        lobbies: lobbies
+    }];
 }
 
 async function handlePlayersFileUpload(event) {
