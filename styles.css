@@ -1,0 +1,1091 @@
+/* GenX League Calendar - Styles */
+
+:root {
+    --bg-dark: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-card-hover: #1a1a25;
+    --primary: #4f46e5;
+    --primary-light: #6366f1;
+    --accent: #22c55e;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --text-primary: #ffffff;
+    --text-secondary: #9ca3af;
+    --border: #2a2a3a;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.header h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2rem;
+    color: var(--primary-light);
+}
+
+.subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.et-clock {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-card);
+    padding: 10px 15px;
+    border-radius: 8px;
+}
+
+.clock-label {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.clock-time {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--primary-light);
+    font-weight: 700;
+}
+
+/* Auth Bar */
+.auth-bar {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
+    background: var(--bg-card);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.auth-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--primary);
+}
+
+.user-name {
+    font-weight: 600;
+}
+
+.role-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.admin-badge {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.manager-badge {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.linked-player {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.linked-player a {
+    color: var(--primary-light);
+}
+
+.team-filter {
+    padding: 8px 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+
+/* Buttons */
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+    font-size: 0.9rem;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--primary-light);
+}
+
+.btn-secondary {
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+
+.btn-discord {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: #5865F2;
+    color: white;
+}
+
+.btn-discord:hover {
+    background: #4752c4;
+}
+
+.discord-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+.btn-available {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.btn-available.active {
+    background: var(--accent);
+    color: var(--bg-dark);
+}
+
+.btn-unavailable {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.btn-unavailable.active {
+    background: var(--danger);
+    color: white;
+}
+
+.btn-sub {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--warning);
+    border: 1px solid var(--warning);
+}
+
+.btn-fill {
+    background: var(--accent);
+    color: var(--bg-dark);
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.tab {
+    padding: 12px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px 6px 0 0;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.tab:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.tab.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.tab-content {
+    display: none;
+    background: var(--bg-card);
+    border-radius: 0 10px 10px 10px;
+    padding: 25px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Games */
+.games-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.game-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: all 0.2s;
+}
+
+.game-card:hover {
+    border-color: var(--primary);
+}
+
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.game-date {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--primary-light);
+    font-weight: 700;
+}
+
+.game-time {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--warning);
+    font-weight: 700;
+}
+
+.game-countdown {
+    text-align: center;
+    padding: 8px;
+    background: rgba(79, 70, 229, 0.1);
+    border-radius: 5px;
+    margin-bottom: 15px;
+}
+
+.countdown-label {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-right: 8px;
+}
+
+.countdown-time {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+.game-matchup {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+}
+
+.team-name {
+    font-weight: 600;
+}
+
+.vs {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.game-league {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 15px;
+}
+
+.game-status {
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.available-count {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--accent);
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+}
+
+.availability-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+/* Sub Requests */
+.sub-requests-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
+}
+
+.sub-requests-section h4 {
+    color: var(--warning);
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+.sub-request-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+
+.sub-player {
+    font-weight: 500;
+}
+
+.sub-skill {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Sub Board */
+.sub-board-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+
+.sub-board-item.can-fill {
+    border-color: var(--accent);
+}
+
+.sub-board-item.cannot-fill {
+    opacity: 0.6;
+}
+
+.sub-info {
+    flex: 1;
+}
+
+.sub-game {
+    font-weight: 500;
+    margin-bottom: 5px;
+}
+
+.skill-diff {
+    font-size: 0.85rem;
+    color: var(--primary-light);
+}
+
+.cannot-fill-msg {
+    color: var(--danger);
+    font-size: 0.85rem;
+}
+
+/* Teams */
+.teams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.team-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+}
+
+.team-card h3 {
+    color: var(--primary-light);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.player-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.player-item:last-child {
+    border-bottom: none;
+}
+
+.player-skill {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+/* Admin */
+.admin-section {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.admin-section h3 {
+    color: var(--primary-light);
+    margin-bottom: 10px;
+}
+
+.admin-section p {
+    color: var(--text-secondary);
+    margin-bottom: 15px;
+}
+
+.settings-form {
+    max-width: 400px;
+}
+
+.setting-row {
+    margin-bottom: 15px;
+}
+
+.setting-row label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+
+.setting-row input {
+    width: 100%;
+    padding: 10px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+
+.setting-help {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 5px;
+}
+
+.sync-status {
+    margin-left: 15px;
+    font-size: 0.9rem;
+}
+
+.sync-status.syncing {
+    color: var(--warning);
+}
+
+.sync-status.success {
+    color: var(--accent);
+}
+
+.sync-status.error {
+    color: var(--danger);
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: var(--bg-card);
+    padding: 30px;
+    border-radius: 15px;
+    max-width: 400px;
+    width: 90%;
+}
+
+.modal-content h3 {
+    margin-bottom: 15px;
+}
+
+.modal-content p {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+.modal-content select {
+    width: 100%;
+    padding: 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    margin-bottom: 20px;
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+/* Utilities */
+.login-required {
+    text-align: center;
+    padding: 40px;
+}
+
+.login-required h3 {
+    margin-bottom: 10px;
+}
+
+.login-required p {
+    color: var(--text-secondary);
+}
+
+.no-games, .no-subs {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-secondary);
+}
+
+.section-desc {
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+/* Weeks List */
+.weeks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.week-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: all 0.2s;
+}
+
+.week-card:hover {
+    border-color: var(--primary);
+}
+
+.week-card.available {
+    border-left: 4px solid var(--accent);
+}
+
+.week-card.unavailable {
+    border-left: 4px solid var(--danger);
+}
+
+.week-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.week-header h3 {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--primary-light);
+    font-size: 1.2rem;
+}
+
+.week-date {
+    color: var(--warning);
+    font-weight: 500;
+}
+
+/* User Lobby Info */
+.user-lobby-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+    padding: 10px 15px;
+    background: rgba(79, 70, 229, 0.1);
+    border-radius: 8px;
+}
+
+.lobby-label {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.lobby-name {
+    font-weight: 600;
+    color: var(--primary-light);
+}
+
+.lobby-teams {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.lobby-team {
+    padding: 6px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.lobby-team.your-team {
+    background: rgba(79, 70, 229, 0.2);
+    border-color: var(--primary);
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+.availability-status {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 10px;
+}
+
+/* All Lobbies Dropdown */
+.all-lobbies {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
+}
+
+.all-lobbies summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    padding: 5px 0;
+}
+
+.all-lobbies summary:hover {
+    color: var(--text-primary);
+}
+
+.lobbies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.lobby-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.lobby-card h4 {
+    color: var(--primary-light);
+    margin-bottom: 10px;
+    font-size: 0.95rem;
+}
+
+.lobby-team-list {
+    list-style: none;
+}
+
+.lobby-team-list li {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+
+.lobby-team-list li:last-child {
+    border-bottom: none;
+}
+
+.lobby-team-list li.your-team {
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+/* Team Roster */
+.team-name {
+    color: var(--primary-light);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.team-roster {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.roster-section {
+    flex: 1;
+    min-width: 120px;
+}
+
+.roster-section h4 {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.player-list {
+    list-style: none;
+}
+
+.player-list li {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+
+.player-list li:last-child {
+    border-bottom: none;
+}
+
+.player-list.subs li {
+    color: var(--text-secondary);
+}
+
+/* Team Selector */
+.team-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+
+.team-selector label {
+    color: var(--text-secondary);
+}
+
+.current-team {
+    font-weight: 600;
+    color: var(--primary-light);
+}
+
+/* Button Variants */
+.btn-outline {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+
+.btn-outline:hover {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.btn-success {
+    background: rgba(34, 197, 94, 0.2);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.btn-success.active {
+    background: var(--accent);
+    color: var(--bg-dark);
+}
+
+.btn-danger {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+}
+
+.btn-danger.active {
+    background: var(--danger);
+    color: white;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.btn-link:hover {
+    color: var(--text-primary);
+}
+
+/* Help Section */
+.help-toggle {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.help-btn {
+    padding: 10px 20px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.help-btn:hover {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.help-btn.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+}
+
+.help-guide h3 {
+    color: var(--primary-light);
+    margin-bottom: 15px;
+}
+
+.help-guide ol {
+    padding-left: 20px;
+    color: var(--text-secondary);
+}
+
+.help-guide li {
+    margin-bottom: 10px;
+    line-height: 1.6;
+}
+
+.help-guide li strong {
+    color: var(--text-primary);
+}
+
+/* Admin Weeks List */
+.admin-weeks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.admin-week-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.admin-week-info {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.admin-week-name {
+    font-weight: 600;
+}
+
+.admin-week-date {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.admin-week-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Import Buttons */
+.import-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* Modal Large */
+.modal-large {
+    max-width: 600px;
+}
+
+.modal-content textarea {
+    width: 100%;
+    padding: 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 0.85rem;
+    resize: vertical;
+    min-height: 200px;
+    margin-bottom: 20px;
+}
+
+/* Form Row */
+.form-row {
+    margin-bottom: 15px;
+}
+
+.form-row label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+
+.form-row input,
+.form-row select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-primary);
+}
+
+.form-row input:focus,
+.form-row select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* Quick Avail Modal */
+.quick-avail-modal {
+    text-align: center;
+}
+
+.quick-avail-modal h3 {
+    color: var(--primary-light);
+    font-family: 'Orbitron', sans-serif;
+}
+
+.quick-avail-player {
+    color: var(--text-primary) !important;
+    font-weight: 500;
+}
+
+.current-response {
+    padding: 10px;
+    background: var(--bg-dark);
+    border-radius: 5px;
+    margin-bottom: 15px;
+}
+
+.quick-avail-modal .modal-buttons {
+    justify-content: center;
+}
+
+/* No Data State */
+.no-data {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-secondary);
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .header {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .auth-section {
+        justify-content: center;
+    }
+
+    .game-matchup {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .sub-board-item {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+    }
+
+    .week-header {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .admin-week-item {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+    }
+
+    .team-roster {
+        flex-direction: column;
+    }
+}
