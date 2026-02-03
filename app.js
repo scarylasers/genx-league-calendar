@@ -2302,14 +2302,11 @@ function parseGenXScoringSheet(rows, fileName) {
             continue;
         }
 
-        // Look for "Lobby" row - captures lobby name and first team
+        // Look for "Lobby" row - captures lobby name (team names start on next rows)
         if (row[1]?.trim().startsWith('Lobby')) {
             if (currentLobby) {
                 currentLobby.name = row[2]?.trim() || `Lobby ${lobbies.length + 1}`;
-                // Team name is in column G (index 6)
-                if (row[6]?.trim() && !row[6].includes('#NAME')) {
-                    currentLobby.teams.push(row[6].trim());
-                }
+                // Note: Team names are NOT on the Lobby row, they start on Time row
             }
             continue;
         }
@@ -2318,8 +2315,8 @@ function parseGenXScoringSheet(rows, fileName) {
         if (row[1]?.trim() === 'Time') {
             if (currentLobby) {
                 currentLobby.time = row[2]?.trim() || '';
-                if (row[6]?.trim() && !row[6].includes('#NAME')) {
-                    currentLobby.teams.push(row[6].trim());
+                if (row[7]?.trim() && !row[7].includes('#NAME')) {
+                    currentLobby.teams.push(row[7].trim());
                 }
             }
             continue;
@@ -2327,8 +2324,8 @@ function parseGenXScoringSheet(rows, fileName) {
 
         // "Division" row - captures third team
         if (row[1]?.trim() === 'Division') {
-            if (currentLobby && row[6]?.trim() && !row[6].includes('#NAME')) {
-                currentLobby.teams.push(row[6].trim());
+            if (currentLobby && row[7]?.trim() && !row[7].includes('#NAME')) {
+                currentLobby.teams.push(row[7].trim());
             }
             continue;
         }
@@ -2337,8 +2334,8 @@ function parseGenXScoringSheet(rows, fileName) {
         if (row[1]?.trim() === 'Host') {
             if (currentLobby) {
                 currentLobby.host = row[2]?.trim() || '';
-                if (row[6]?.trim() && !row[6].includes('#NAME')) {
-                    currentLobby.teams.push(row[6].trim());
+                if (row[7]?.trim() && !row[7].includes('#NAME')) {
+                    currentLobby.teams.push(row[7].trim());
                 }
             }
             continue;
