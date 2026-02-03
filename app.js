@@ -1159,13 +1159,20 @@ async function lookupAndDisplayCR(name) {
 
     updateCRDisplay(null, 'Looking up...');
 
-    const cr = await lookupPlayerCR(name);
+    const result = await lookupPlayerInfo(name);
 
-    if (cr !== null) {
-        currentSubCR = cr;
+    if (result.onTeam) {
+        // Player is on a team roster - cannot be a sub
+        currentSubCR = null;
+        submitBtn.disabled = true;
+        updateCRDisplay(null, `On team: ${result.team}`);
+        errorDiv.innerHTML = `You are registered on team "<strong>${escapeHtml(result.team)}</strong>" and cannot join the sub pool. Only unrostered players can be subs.`;
+        errorDiv.style.display = 'block';
+    } else if (result.found) {
+        currentSubCR = result.compRank;
         submitBtn.disabled = false;
         errorDiv.style.display = 'none';
-        updateCRDisplay(cr, 'Found in registered players');
+        updateCRDisplay(result.compRank, 'Found in registered players');
     } else {
         currentSubCR = null;
         submitBtn.disabled = true;
@@ -1421,20 +1428,23 @@ function renderRegisteredPlayersList() {
     `;
 }
 
-// Lookup player CR when registering as sub
-async function lookupPlayerCR(name) {
+// Lookup player info when registering as sub
+async function lookupPlayerInfo(name) {
     try {
         const res = await fetch(`/api/players/lookup?name=${encodeURIComponent(name)}`, { credentials: 'include' });
         if (res.ok) {
-            const data = await res.json();
-            if (data.found) {
-                return data.compRank;
-            }
+            return await res.json();
         }
     } catch (err) {
-        console.error('Failed to lookup player CR:', err);
+        console.error('Failed to lookup player:', err);
     }
-    return null;
+    return { found: false, onTeam: false };
+}
+
+// Lookup player CR (simple version for backwards compatibility)
+async function lookupPlayerCR(name) {
+    const result = await lookupPlayerInfo(name);
+    return result.found ? result.compRank : null;
 }
 
 // Sub matching rules

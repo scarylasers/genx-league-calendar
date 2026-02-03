@@ -1572,6 +1572,13 @@ func handleRegisterAsSub(w http.ResponseWriter, r *http.Request) {
 		name = session.DisplayName
 	}
 
+	// Check if player is on a team roster - they cannot be a sub
+	teamName := isPlayerOnTeam(name)
+	if teamName != "" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("You are registered on team '%s' and cannot join the sub pool. Only unrostered players can be subs.", teamName))
+		return
+	}
+
 	// Look up CR from registered players - users cannot set their own CR
 	registeredPlayer, err := getRegisteredPlayerByName(name)
 	if err != nil {
@@ -1602,6 +1609,32 @@ func handleRegisterAsSub(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"sub":     sub,
 	})
+}
+
+// isPlayerOnTeam checks if a player name is on any team roster (players or subs)
+// Returns the team name if found, empty string if not
+func isPlayerOnTeam(playerName string) string {
+	teams, err := getAllTeams()
+	if err != nil {
+		return ""
+	}
+
+	playerNameLower := strings.ToLower(playerName)
+	for _, team := range teams {
+		// Check main roster
+		for _, p := range team.Players {
+			if strings.ToLower(p) == playerNameLower {
+				return team.Name
+			}
+		}
+		// Check team subs (these are team-specific subs, not the sub pool)
+		for _, s := range team.Subs {
+			if strings.ToLower(s) == playerNameLower {
+				return team.Name
+			}
+		}
+	}
+	return ""
 }
 
 func handleUpdateSubAvailability(w http.ResponseWriter, r *http.Request) {
@@ -1856,9 +1889,14 @@ func handleGetPlayerCR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if player is on a team
+	teamName := isPlayerOnTeam(name)
+
 	if player == nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"found": false,
+			"found":  false,
+			"onTeam": teamName != "",
+			"team":   teamName,
 		})
 		return
 	}
@@ -1867,6 +1905,8 @@ func handleGetPlayerCR(w http.ResponseWriter, r *http.Request) {
 		"found":    true,
 		"name":     player.Name,
 		"compRank": player.CompRank,
+		"onTeam":   teamName != "",
+		"team":     teamName,
 	})
 }
 
