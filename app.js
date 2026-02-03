@@ -860,20 +860,23 @@ async function importTeamsFromPaste() {
     }
 
     // Convert to teams format
-    // Expected: Team Name, Player 1-5, Sub 1-4
+    // Format: Team Name, Player 1, (empty), Player 2, Player 3, Player 4, Player 5, Sub 1, Sub 2, ...
+    // Note: There's an empty column between Player 1 and Player 2
     const teamsData = rows.map((row, index) => {
         const teamName = row[0];
         if (!teamName) return null;
 
-        const players = [];
-        for (let i = 1; i <= 5 && i < row.length; i++) {
-            if (row[i]) players.push(row[i]);
+        // Get all non-empty values after team name
+        const allMembers = [];
+        for (let i = 1; i < row.length; i++) {
+            if (row[i] && row[i].trim()) {
+                allMembers.push(row[i].trim());
+            }
         }
 
-        const subs = [];
-        for (let i = 6; i <= 9 && i < row.length; i++) {
-            if (row[i]) subs.push(row[i]);
-        }
+        // First 5 are players, rest are subs
+        const players = allMembers.slice(0, 5);
+        const subs = allMembers.slice(5);
 
         return {
             name: teamName,
