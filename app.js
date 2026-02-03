@@ -24,6 +24,7 @@ async function init() {
     await fetchWeeks();
     await fetchSubs();
     await loadSubRules();
+    await fetchRegisteredPlayers();
 
     renderWeeksList();
     renderTeamRoster();
@@ -76,6 +77,8 @@ function showLoggedIn() {
     // Show admin tab if admin
     if (currentUser.isAdmin) {
         document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+        // Load admin users list
+        loadAdminUsers();
     }
 
     // Show linked player info
@@ -1031,7 +1034,6 @@ function renderSubPool() {
 
     filteredSubs.sort((a, b) => {
         if (sortBy === 'compRank') return (b.compRank || 0) - (a.compRank || 0);
-        if (sortBy === 'xRank') return (b.xRank || 0) - (a.xRank || 0);
         if (sortBy === 'name') return a.name.localeCompare(b.name);
         return 0;
     });
@@ -1049,7 +1051,6 @@ function renderSubPool() {
             </div>
             <div class="sub-ranks">
                 <span class="rank comp-rank" title="Comp Rank">CR: ${sub.compRank || '?'}</span>
-                <span class="rank x-rank" title="X Rank">XR: ${sub.xRank || '?'}</span>
             </div>
             <div class="sub-status">
                 <span class="status-badge ${sub.available ? 'available' : 'unavailable'}">
@@ -1090,12 +1091,101 @@ function updateSubPoolActions() {
     }
 }
 
-function showRegisterSubModal() {
+let currentSubCR = null; // Stores the looked-up CR for registration
+
+async function showRegisterSubModal() {
+    const nameInput = document.getElementById('subName');
+    const crDisplay = document.getElementById('subCRDisplay');
+    const submitBtn = document.getElementById('registerSubSubmitBtn');
+    const errorDiv = document.getElementById('subRegisterError');
+
+    // Reset state
+    nameInput.value = '';
+    currentSubCR = null;
+    submitBtn.disabled = true;
+    errorDiv.style.display = 'none';
+    updateCRDisplay(null, 'Enter your name to lookup CR');
+
     // Pre-fill with user info if available
     if (currentUser?.playerName) {
-        document.getElementById('subName').value = currentUser.playerName;
+        nameInput.value = currentUser.playerName;
+        await lookupAndDisplayCR(currentUser.playerName);
     }
+
+    // Add event listener for name changes to auto-lookup CR
+    nameInput.oninput = debounce(async function() {
+        const name = this.value.trim();
+        if (name) {
+            await lookupAndDisplayCR(name);
+        } else {
+            currentSubCR = null;
+            submitBtn.disabled = true;
+            updateCRDisplay(null, 'Enter your name to lookup CR');
+        }
+    }, 500);
+
     document.getElementById('registerSubModal').classList.add('active');
+}
+
+function updateCRDisplay(cr, status) {
+    const crDisplay = document.getElementById('subCRDisplay');
+    if (!crDisplay) return;
+
+    const valueEl = crDisplay.querySelector('.cr-value');
+    const statusEl = crDisplay.querySelector('.cr-status');
+
+    if (cr !== null) {
+        valueEl.textContent = cr;
+        valueEl.classList.add('found');
+        statusEl.textContent = status || 'Found in registered players';
+        statusEl.classList.remove('error');
+        statusEl.classList.add('success');
+    } else {
+        valueEl.textContent = '--';
+        valueEl.classList.remove('found');
+        statusEl.textContent = status || 'Not found';
+        statusEl.classList.remove('success');
+        if (status && status.includes('not found')) {
+            statusEl.classList.add('error');
+        } else {
+            statusEl.classList.remove('error');
+        }
+    }
+}
+
+async function lookupAndDisplayCR(name) {
+    const submitBtn = document.getElementById('registerSubSubmitBtn');
+    const errorDiv = document.getElementById('subRegisterError');
+
+    updateCRDisplay(null, 'Looking up...');
+
+    const cr = await lookupPlayerCR(name);
+
+    if (cr !== null) {
+        currentSubCR = cr;
+        submitBtn.disabled = false;
+        errorDiv.style.display = 'none';
+        updateCRDisplay(cr, 'Found in registered players');
+    } else {
+        currentSubCR = null;
+        submitBtn.disabled = true;
+        updateCRDisplay(null, `"${name}" not found in registered players`);
+        errorDiv.innerHTML = 'Your name must be registered via stat-bot before you can join the sub pool. Contact a league admin if you believe this is an error.';
+        errorDiv.style.display = 'block';
+    }
+}
+
+// Debounce helper to avoid too many API calls
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func.apply(this, args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
 }
 
 function closeRegisterSubModal() {
@@ -1104,12 +1194,15 @@ function closeRegisterSubModal() {
 
 async function registerAsSub() {
     const name = document.getElementById('subName').value.trim();
-    const xRank = parseInt(document.getElementById('subXRank').value) || 0;
-    const compRank = parseInt(document.getElementById('subCompRank').value) || 0;
     const notes = document.getElementById('subNotes').value.trim();
 
     if (!name) {
         alert('Please enter your in-game name');
+        return;
+    }
+
+    if (currentSubCR === null) {
+        alert('Your name must be found in the registered players list');
         return;
     }
 
@@ -1118,7 +1211,7 @@ async function registerAsSub() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ name, xRank, compRank, notes })
+            body: JSON.stringify({ name, notes })
         });
 
         if (res.ok) {
@@ -1227,41 +1320,226 @@ async function importSubsFromPaste() {
     }
 }
 
+// ==================== REGISTERED PLAYERS ====================
+
+async function fetchRegisteredPlayers() {
+    try {
+        const res = await fetch('/api/players', { credentials: 'include' });
+        if (res.ok) {
+            registeredPlayers = await res.json();
+            updateRegisteredPlayersCount();
+        }
+    } catch (err) {
+        console.error('Failed to fetch registered players:', err);
+        registeredPlayers = [];
+    }
+}
+
+function updateRegisteredPlayersCount() {
+    const countEl = document.getElementById('registeredPlayersCount');
+    if (countEl) {
+        countEl.textContent = registeredPlayers.length;
+    }
+}
+
+function showImportPlayersModal() {
+    document.getElementById('importPlayersModal').classList.add('active');
+}
+
+function closeImportPlayersModal() {
+    document.getElementById('importPlayersModal').classList.remove('active');
+}
+
+async function importPlayersFromPaste() {
+    const text = document.getElementById('playersData').value.trim();
+    if (!text) {
+        alert('Please paste the players data');
+        return;
+    }
+
+    const replace = document.getElementById('replacePlayersOnImport').checked;
+
+    try {
+        const res = await fetch('/api/admin/import-players', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ data: text, replace })
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            alert(`Imported ${result.imported} registered players!`);
+            closeImportPlayersModal();
+            await fetchRegisteredPlayers();
+            renderRegisteredPlayersList();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to import');
+        }
+    } catch (err) {
+        console.error('Import error:', err);
+        alert('Failed to import registered players');
+    }
+}
+
+function toggleRegisteredPlayersList() {
+    const list = document.getElementById('registeredPlayersList');
+    if (list.style.display === 'none') {
+        list.style.display = 'block';
+        renderRegisteredPlayersList();
+    } else {
+        list.style.display = 'none';
+    }
+}
+
+function renderRegisteredPlayersList() {
+    const container = document.getElementById('registeredPlayersList');
+    if (!container) return;
+
+    if (registeredPlayers.length === 0) {
+        container.innerHTML = '<p class="no-data">No registered players. Import from stat-bot to populate.</p>';
+        return;
+    }
+
+    // Sort by CR descending
+    const sorted = [...registeredPlayers].sort((a, b) => (b.compRank || 0) - (a.compRank || 0));
+
+    container.innerHTML = `
+        <div class="players-table">
+            <div class="players-header">
+                <span class="player-col-name">Name</span>
+                <span class="player-col-cr">CR</span>
+            </div>
+            ${sorted.map(p => `
+                <div class="player-row">
+                    <span class="player-col-name">${escapeHtml(p.name)}</span>
+                    <span class="player-col-cr">${p.compRank || '?'}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+// Lookup player CR when registering as sub
+async function lookupPlayerCR(name) {
+    try {
+        const res = await fetch(`/api/players/lookup?name=${encodeURIComponent(name)}`, { credentials: 'include' });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.found) {
+                return data.compRank;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to lookup player CR:', err);
+    }
+    return null;
+}
+
 // Sub matching rules
-let subRules = { upperThreshold: 150, lowerThreshold: 30 };
+let subRules = { tiers: [], maxOverage: 0, equalFloor: 0 };
 let eligibleFilter = null; // When set, only show eligible subs
+let registeredPlayers = []; // All registered players from stat-bot
 
 async function loadSubRules() {
     try {
         const res = await fetch('/api/admin/sub-rules', { credentials: 'include' });
         if (res.ok) {
             subRules = await res.json();
-            // Update form fields if on admin page
-            const upperInput = document.getElementById('upperCRThreshold');
-            const lowerInput = document.getElementById('lowerCRThreshold');
-            if (upperInput) upperInput.value = subRules.upperThreshold;
-            if (lowerInput) lowerInput.value = subRules.lowerThreshold;
+            // Update form fields
+            const maxOverageInput = document.getElementById('maxOverage');
+            const equalFloorInput = document.getElementById('equalFloor');
+            if (maxOverageInput) maxOverageInput.value = subRules.maxOverage || 0;
+            if (equalFloorInput) equalFloorInput.value = subRules.equalFloor || 0;
+            renderTiersList();
         }
     } catch (err) {
         console.error('Failed to load sub rules:', err);
     }
 }
 
+function renderTiersList() {
+    const container = document.getElementById('tiersList');
+    if (!container) return;
+
+    const tiers = subRules.tiers || [];
+
+    if (tiers.length === 0) {
+        container.innerHTML = '<p class="no-data">No tiers configured. Without tiers, subs must have CR ≤ outgoing player\'s CR.</p>';
+        return;
+    }
+
+    container.innerHTML = tiers.map((tier, index) => `
+        <div class="tier-item" data-tier-id="${tier.id}">
+            <div class="tier-info">
+                <span class="tier-name">${escapeHtml(tier.name)}</span>
+                <span class="tier-range">CR ${tier.min} - ${tier.max}</span>
+            </div>
+            <button class="btn btn-small btn-danger" onclick="removeTier('${tier.id}')">Remove</button>
+        </div>
+    `).join('');
+}
+
+function addTier() {
+    const nameInput = document.getElementById('newTierName');
+    const minInput = document.getElementById('newTierMin');
+    const maxInput = document.getElementById('newTierMax');
+
+    const name = nameInput.value.trim();
+    const min = parseInt(minInput.value) || 0;
+    const max = parseInt(maxInput.value) || 0;
+
+    if (!name) {
+        alert('Please enter a tier name');
+        return;
+    }
+    if (max < min) {
+        alert('Max must be greater than or equal to Min');
+        return;
+    }
+
+    const tiers = subRules.tiers || [];
+    const newTier = {
+        id: 'tier-' + Date.now(),
+        name: name,
+        min: min,
+        max: max
+    };
+
+    tiers.push(newTier);
+    subRules.tiers = tiers;
+
+    // Clear inputs
+    nameInput.value = '';
+    minInput.value = '';
+    maxInput.value = '';
+
+    renderTiersList();
+}
+
+function removeTier(tierId) {
+    subRules.tiers = (subRules.tiers || []).filter(t => t.id !== tierId);
+    renderTiersList();
+}
+
 async function saveSubRules() {
-    const upperThreshold = parseInt(document.getElementById('upperCRThreshold').value) || 150;
-    const lowerThreshold = parseInt(document.getElementById('lowerCRThreshold').value) || 30;
+    const tiers = subRules.tiers || [];
+    const maxOverage = parseInt(document.getElementById('maxOverage')?.value) || 0;
+    const equalFloor = parseInt(document.getElementById('equalFloor')?.value) || 0;
 
     try {
         const res = await fetch('/api/admin/sub-rules', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ upperThreshold, lowerThreshold })
+            body: JSON.stringify({ tiers, maxOverage, equalFloor })
         });
 
         const statusEl = document.getElementById('subRulesStatus');
         if (res.ok) {
-            subRules = { upperThreshold, lowerThreshold };
+            subRules.maxOverage = maxOverage;
+            subRules.equalFloor = equalFloor;
             if (statusEl) statusEl.textContent = '✓ Rules saved!';
         } else {
             const err = await res.json();
@@ -1292,12 +1570,11 @@ async function findEligibleSubs() {
 
             const statusEl = document.getElementById('eligibleStatus');
             if (statusEl) {
-                statusEl.textContent = `Found ${data.eligible.length} eligible subs for CR ${outgoingCR}`;
-                if (data.outgoingCR >= data.upperThreshold) {
-                    statusEl.textContent += ` (above ${data.upperThreshold} threshold - top tier)`;
-                } else if (data.outgoingCR <= data.lowerThreshold) {
-                    statusEl.textContent += ` (below ${data.lowerThreshold} threshold - open tier)`;
+                let statusText = `Found ${data.eligible.length} eligible subs for CR ${outgoingCR}`;
+                if (data.reason) {
+                    statusText += ` — ${data.reason}`;
                 }
+                statusEl.textContent = statusText;
             }
 
             renderSubPool();
@@ -1346,7 +1623,6 @@ renderSubPool = function() {
 
     filteredSubs.sort((a, b) => {
         if (sortBy === 'compRank') return (b.compRank || 0) - (a.compRank || 0);
-        if (sortBy === 'xRank') return (b.xRank || 0) - (a.xRank || 0);
         if (sortBy === 'name') return a.name.localeCompare(b.name);
         return 0;
     });
@@ -1368,7 +1644,6 @@ renderSubPool = function() {
             </div>
             <div class="sub-ranks">
                 <span class="rank comp-rank" title="Comp Rank">CR: ${sub.compRank || '?'}</span>
-                <span class="rank x-rank" title="X Rank">XR: ${sub.xRank || '?'}</span>
             </div>
             <div class="sub-status">
                 <span class="status-badge ${sub.available ? 'available' : 'unavailable'}">
@@ -1432,4 +1707,115 @@ function formatDate(dateStr) {
         month: 'short',
         day: 'numeric'
     });
+}
+
+// ==================== ADMIN USER MANAGEMENT ====================
+
+let adminUsers = [];
+
+async function loadAdminUsers() {
+    const container = document.getElementById('adminUsersList');
+    if (!container) return;
+
+    container.innerHTML = '<p class="loading">Loading users...</p>';
+
+    try {
+        const res = await fetch('/api/admin/users', { credentials: 'include' });
+        if (res.ok) {
+            adminUsers = await res.json();
+            renderAdminUsersList();
+        } else {
+            container.innerHTML = '<p class="error">Failed to load users</p>';
+        }
+    } catch (err) {
+        console.error('Failed to load users:', err);
+        container.innerHTML = '<p class="error">Failed to load users</p>';
+    }
+}
+
+function renderAdminUsersList() {
+    const container = document.getElementById('adminUsersList');
+    if (!container) return;
+
+    if (adminUsers.length === 0) {
+        container.innerHTML = '<p class="no-data">No users have logged in yet.</p>';
+        return;
+    }
+
+    // Sort: admins first, then by name
+    const sorted = [...adminUsers].sort((a, b) => {
+        if (a.isAdmin !== b.isAdmin) return b.isAdmin ? 1 : -1;
+        return (a.displayName || a.username).localeCompare(b.displayName || b.username);
+    });
+
+    container.innerHTML = `
+        <div class="users-table">
+            <div class="users-header">
+                <span class="user-col-avatar"></span>
+                <span class="user-col-name">User</span>
+                <span class="user-col-team">Team / Player</span>
+                <span class="user-col-admin">Admin</span>
+            </div>
+            ${sorted.map(user => `
+                <div class="user-row ${user.isAdmin ? 'is-admin' : ''} ${user.discordId === currentUser?.discordId ? 'is-me' : ''}">
+                    <span class="user-col-avatar">
+                        ${user.avatar ? `<img src="${user.avatar}" class="user-mini-avatar" alt="">` : ''}
+                    </span>
+                    <span class="user-col-name">
+                        <span class="user-display-name">${escapeHtml(user.displayName || user.username)}</span>
+                        <span class="user-username">@${escapeHtml(user.username)}</span>
+                    </span>
+                    <span class="user-col-team">
+                        ${user.teamName ? `${escapeHtml(user.teamName)}` : '<span class="not-linked">Not linked</span>'}
+                        ${user.playerName ? `<br><small>${escapeHtml(user.playerName)}</small>` : ''}
+                    </span>
+                    <span class="user-col-admin">
+                        ${user.discordId === currentUser?.discordId ?
+                            '<span class="admin-badge-you">You</span>' :
+                            `<button class="btn btn-small ${user.isAdmin ? 'btn-danger' : 'btn-success'}"
+                                     onclick="toggleUserAdmin('${user.discordId}', ${!user.isAdmin})">
+                                ${user.isAdmin ? 'Remove Admin' : 'Make Admin'}
+                            </button>`
+                        }
+                    </span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+async function toggleUserAdmin(discordId, makeAdmin) {
+    const user = adminUsers.find(u => u.discordId === discordId);
+    if (!user) return;
+
+    const action = makeAdmin ? 'grant admin access to' : 'remove admin access from';
+    if (!confirm(`Are you sure you want to ${action} ${user.displayName || user.username}?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/set-admin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ discordId, isAdmin: makeAdmin })
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            // Update local state
+            const userIndex = adminUsers.findIndex(u => u.discordId === discordId);
+            if (userIndex !== -1) {
+                adminUsers[userIndex].isAdmin = result.isAdmin;
+            }
+            renderAdminUsersList();
+            alert(`${result.displayName} is ${result.isAdmin ? 'now an admin' : 'no longer an admin'}`);
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to update admin status');
+        }
+    } catch (err) {
+        console.error('Failed to update admin:', err);
+        alert('Failed to update admin status');
+    }
 }

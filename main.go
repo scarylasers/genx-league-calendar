@@ -79,11 +79,23 @@ type Sub struct {
 	Name         string `json:"name"`
 	DiscordID    string `json:"discordId,omitempty"`
 	DiscordName  string `json:"discordName,omitempty"`
-	XRank        int    `json:"xRank"`
 	CompRank     int    `json:"compRank"`
 	Available    bool   `json:"available"`
 	Notes        string `json:"notes,omitempty"`
 	LastActive   string `json:"lastActive,omitempty"`
+}
+
+type Tier struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Min  int    `json:"min"`
+	Max  int    `json:"max"`
+}
+
+type RegisteredPlayer struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	CompRank int    `json:"compRank"`
 }
 
 type User struct {
@@ -180,11 +192,21 @@ func initDB() error {
 			name TEXT NOT NULL,
 			discord_id TEXT,
 			discord_name TEXT,
-			x_rank INTEGER DEFAULT 0,
 			comp_rank INTEGER DEFAULT 0,
 			available BOOLEAN DEFAULT TRUE,
 			notes TEXT,
 			last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS tiers (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			min_rank INTEGER NOT NULL,
+			max_rank INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS registered_players (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			comp_rank INTEGER DEFAULT 0
 		)`,
 	}
 
@@ -557,7 +579,7 @@ func saveAvailability(ta TeamAvailability) error {
 // ==================== SUB POOL FUNCTIONS ====================
 
 func getAllSubs() ([]Sub, error) {
-	rows, err := db.Query("SELECT id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active FROM subs ORDER BY comp_rank DESC")
+	rows, err := db.Query("SELECT id, name, discord_id, discord_name, comp_rank, available, notes, last_active FROM subs ORDER BY comp_rank DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +590,7 @@ func getAllSubs() ([]Sub, error) {
 		var s Sub
 		var discordID, discordName, notes sql.NullString
 		var lastActive sql.NullTime
-		if err := rows.Scan(&s.ID, &s.Name, &discordID, &discordName, &s.XRank, &s.CompRank, &s.Available, &notes, &lastActive); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &discordID, &discordName, &s.CompRank, &s.Available, &notes, &lastActive); err != nil {
 			continue
 		}
 		s.DiscordID = discordID.String
@@ -587,9 +609,9 @@ func getSubByID(id string) (*Sub, error) {
 	var discordID, discordName, notes sql.NullString
 	var lastActive sql.NullTime
 	err := db.QueryRow(`
-		SELECT id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active
+		SELECT id, name, discord_id, discord_name, comp_rank, available, notes, last_active
 		FROM subs WHERE id = $1
-	`, id).Scan(&s.ID, &s.Name, &discordID, &discordName, &s.XRank, &s.CompRank, &s.Available, &notes, &lastActive)
+	`, id).Scan(&s.ID, &s.Name, &discordID, &discordName, &s.CompRank, &s.Available, &notes, &lastActive)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -611,9 +633,9 @@ func getSubByDiscordID(discordID string) (*Sub, error) {
 	var dID, discordName, notes sql.NullString
 	var lastActive sql.NullTime
 	err := db.QueryRow(`
-		SELECT id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active
+		SELECT id, name, discord_id, discord_name, comp_rank, available, notes, last_active
 		FROM subs WHERE discord_id = $1
-	`, discordID).Scan(&s.ID, &s.Name, &dID, &discordName, &s.XRank, &s.CompRank, &s.Available, &notes, &lastActive)
+	`, discordID).Scan(&s.ID, &s.Name, &dID, &discordName, &s.CompRank, &s.Available, &notes, &lastActive)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -632,16 +654,104 @@ func getSubByDiscordID(discordID string) (*Sub, error) {
 
 func saveSub(s Sub) error {
 	_, err := db.Exec(`
-		INSERT INTO subs (id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+		INSERT INTO subs (id, name, discord_id, discord_name, comp_rank, available, notes, last_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
 		ON CONFLICT (id) DO UPDATE SET
-			name = $2, discord_id = $3, discord_name = $4, x_rank = $5, comp_rank = $6, available = $7, notes = $8, last_active = CURRENT_TIMESTAMP
-	`, s.ID, s.Name, s.DiscordID, s.DiscordName, s.XRank, s.CompRank, s.Available, s.Notes)
+			name = $2, discord_id = $3, discord_name = $4, comp_rank = $5, available = $6, notes = $7, last_active = CURRENT_TIMESTAMP
+	`, s.ID, s.Name, s.DiscordID, s.DiscordName, s.CompRank, s.Available, s.Notes)
 	return err
+}
+
+// ==================== TIER FUNCTIONS ====================
+
+func getAllTiers() ([]Tier, error) {
+	rows, err := db.Query("SELECT id, name, min_rank, max_rank FROM tiers ORDER BY max_rank DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tiers []Tier
+	for rows.Next() {
+		var t Tier
+		if err := rows.Scan(&t.ID, &t.Name, &t.Min, &t.Max); err != nil {
+			continue
+		}
+		tiers = append(tiers, t)
+	}
+	return tiers, nil
+}
+
+func saveTier(t Tier) error {
+	_, err := db.Exec(`
+		INSERT INTO tiers (id, name, min_rank, max_rank) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO UPDATE SET name = $2, min_rank = $3, max_rank = $4
+	`, t.ID, t.Name, t.Min, t.Max)
+	return err
+}
+
+func deleteTier(id string) error {
+	_, err := db.Exec("DELETE FROM tiers WHERE id = $1", id)
+	return err
+}
+
+func getTierForRank(rank int, tiers []Tier) *Tier {
+	for _, t := range tiers {
+		if rank >= t.Min && rank <= t.Max {
+			return &t
+		}
+	}
+	return nil
 }
 
 func deleteSub(id string) error {
 	_, err := db.Exec("DELETE FROM subs WHERE id = $1", id)
+	return err
+}
+
+// ==================== REGISTERED PLAYERS FUNCTIONS ====================
+
+func getAllRegisteredPlayers() ([]RegisteredPlayer, error) {
+	rows, err := db.Query("SELECT id, name, comp_rank FROM registered_players ORDER BY comp_rank DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var players []RegisteredPlayer
+	for rows.Next() {
+		var p RegisteredPlayer
+		if err := rows.Scan(&p.ID, &p.Name, &p.CompRank); err != nil {
+			continue
+		}
+		players = append(players, p)
+	}
+	return players, nil
+}
+
+func getRegisteredPlayerByName(name string) (*RegisteredPlayer, error) {
+	var p RegisteredPlayer
+	err := db.QueryRow("SELECT id, name, comp_rank FROM registered_players WHERE LOWER(name) = LOWER($1)", name).
+		Scan(&p.ID, &p.Name, &p.CompRank)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func saveRegisteredPlayer(p RegisteredPlayer) error {
+	_, err := db.Exec(`
+		INSERT INTO registered_players (id, name, comp_rank) VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET name = $2, comp_rank = $3
+	`, p.ID, p.Name, p.CompRank)
+	return err
+}
+
+func clearRegisteredPlayers() error {
+	_, err := db.Exec("DELETE FROM registered_players")
 	return err
 }
 
@@ -661,6 +771,30 @@ func getUserByDiscordID(discordID string) (*User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+func getAllUsers() ([]User, error) {
+	rows, err := db.Query(`
+		SELECT discord_id, username, display_name, avatar, team_id, player_name, is_admin, is_manager
+		FROM users ORDER BY display_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		var teamID, playerName sql.NullString
+		if err := rows.Scan(&u.DiscordID, &u.Username, &u.DisplayName, &u.Avatar, &teamID, &playerName, &u.IsAdmin, &u.IsManager); err != nil {
+			continue
+		}
+		u.TeamID = teamID.String
+		u.PlayerName = playerName.String
+		users = append(users, u)
+	}
+	return users, nil
 }
 
 func saveUser(u User) error {
@@ -1421,10 +1555,8 @@ func handleRegisterAsSub(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name     string `json:"name"`
-		XRank    int    `json:"xRank"`
-		CompRank int    `json:"compRank"`
-		Notes    string `json:"notes"`
+		Name  string `json:"name"`
+		Notes string `json:"notes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON")
@@ -1440,13 +1572,23 @@ func handleRegisterAsSub(w http.ResponseWriter, r *http.Request) {
 		name = session.DisplayName
 	}
 
+	// Look up CR from registered players - users cannot set their own CR
+	registeredPlayer, err := getRegisteredPlayerByName(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to lookup player")
+		return
+	}
+	if registeredPlayer == nil {
+		writeError(w, http.StatusBadRequest, "You must be registered via stat-bot before joining the sub pool. Contact a league admin.")
+		return
+	}
+
 	sub := Sub{
 		ID:          "sub-" + session.DiscordID,
 		Name:        name,
 		DiscordID:   session.DiscordID,
 		DiscordName: session.Username,
-		XRank:       body.XRank,
-		CompRank:    body.CompRank,
+		CompRank:    registeredPlayer.CompRank,
 		Available:   true,
 		Notes:       body.Notes,
 	}
@@ -1535,9 +1677,13 @@ func handleImportSubs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse the stat-bot format:
-	// Name X Rank: ### Comp Rank: ###
+	// (CR)    IGN
+	// e.g., "(163)    F(xyz)" or "(159)    VDT.ElephantGhost"
 	lines := strings.Split(body.Data, "\n")
 	imported := 0
+
+	// Regex to match: (number) followed by whitespace and then the name
+	crPattern := regexp.MustCompile(`^\((\d+)\)\s+(.+)$`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -1545,33 +1691,43 @@ func handleImportSubs(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Parse: "f(x,y,z) X Rank: 119 Comp Rank: 173"
-		xRankIdx := strings.Index(line, " X Rank: ")
-		if xRankIdx == -1 {
+		matches := crPattern.FindStringSubmatch(line)
+		if len(matches) != 3 {
+			// Try old format as fallback: "Name X Rank: ### Comp Rank: ###"
+			xRankIdx := strings.Index(line, " X Rank: ")
+			if xRankIdx != -1 {
+				name := strings.TrimSpace(line[:xRankIdx])
+				rest := line[xRankIdx+9:]
+				compRankIdx := strings.Index(rest, " Comp Rank: ")
+				if compRankIdx != -1 {
+					compRankStr := strings.TrimSpace(rest[compRankIdx+12:])
+					compRank, _ := strconv.Atoi(compRankStr)
+					subID := "sub-" + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, " ", "-"), ".", "-"))
+					sub := Sub{
+						ID:        subID,
+						Name:      name,
+						CompRank:  compRank,
+						Available: true,
+					}
+					if err := saveSub(sub); err != nil {
+						log.Printf("Failed to save sub %s: %v", name, err)
+						continue
+					}
+					imported++
+				}
+			}
 			continue
 		}
 
-		name := strings.TrimSpace(line[:xRankIdx])
-		rest := line[xRankIdx+9:] // after " X Rank: "
+		compRank, _ := strconv.Atoi(matches[1])
+		name := strings.TrimSpace(matches[2])
 
-		compRankIdx := strings.Index(rest, " Comp Rank: ")
-		if compRankIdx == -1 {
-			continue
-		}
-
-		xRankStr := strings.TrimSpace(rest[:compRankIdx])
-		compRankStr := strings.TrimSpace(rest[compRankIdx+12:])
-
-		xRank, _ := strconv.Atoi(xRankStr)
-		compRank, _ := strconv.Atoi(compRankStr)
-
-		// Create sub ID from name (lowercase, replace spaces)
+		// Create sub ID from name (lowercase, replace spaces and special chars)
 		subID := "sub-" + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, " ", "-"), ".", "-"))
 
 		sub := Sub{
 			ID:        subID,
 			Name:      name,
-			XRank:     xRank,
 			CompRank:  compRank,
 			Available: true,
 		}
@@ -1589,24 +1745,158 @@ func handleImportSubs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handleGetSubRules(w http.ResponseWriter, r *http.Request) {
-	upperThreshold, _ := getSetting("sub_upper_cr_threshold")
-	lowerThreshold, _ := getSetting("sub_lower_cr_threshold")
-
-	upper, _ := strconv.Atoi(upperThreshold)
-	lower, _ := strconv.Atoi(lowerThreshold)
-
-	// Defaults
-	if upper == 0 {
-		upper = 150
+func handleGetRegisteredPlayers(w http.ResponseWriter, r *http.Request) {
+	players, err := getAllRegisteredPlayers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	if lower == 0 {
-		lower = 30
+	if players == nil {
+		players = []RegisteredPlayer{}
+	}
+	writeJSON(w, http.StatusOK, players)
+}
+
+func handleImportRegisteredPlayers(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		Data    string `json:"data"`
+		Replace bool   `json:"replace"` // If true, clear existing players first
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Clear existing if requested
+	if body.Replace {
+		if err := clearRegisteredPlayers(); err != nil {
+			log.Printf("Failed to clear registered players: %v", err)
+		}
+	}
+
+	// Parse the stat-bot format: (CR)    IGN
+	lines := strings.Split(body.Data, "\n")
+	imported := 0
+
+	crPattern := regexp.MustCompile(`^\((\d+)\)\s+(.+)$`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		matches := crPattern.FindStringSubmatch(line)
+		if len(matches) != 3 {
+			// Try old format as fallback
+			xRankIdx := strings.Index(line, " X Rank: ")
+			if xRankIdx != -1 {
+				name := strings.TrimSpace(line[:xRankIdx])
+				rest := line[xRankIdx+9:]
+				compRankIdx := strings.Index(rest, " Comp Rank: ")
+				if compRankIdx != -1 {
+					compRankStr := strings.TrimSpace(rest[compRankIdx+12:])
+					compRank, _ := strconv.Atoi(compRankStr)
+					playerID := "player-" + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, " ", "-"), ".", "-"))
+					player := RegisteredPlayer{
+						ID:       playerID,
+						Name:     name,
+						CompRank: compRank,
+					}
+					if err := saveRegisteredPlayer(player); err != nil {
+						log.Printf("Failed to save player %s: %v", name, err)
+						continue
+					}
+					imported++
+				}
+			}
+			continue
+		}
+
+		compRank, _ := strconv.Atoi(matches[1])
+		name := strings.TrimSpace(matches[2])
+
+		playerID := "player-" + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, " ", "-"), ".", "-"))
+
+		player := RegisteredPlayer{
+			ID:       playerID,
+			Name:     name,
+			CompRank: compRank,
+		}
+
+		if err := saveRegisteredPlayer(player); err != nil {
+			log.Printf("Failed to save player %s: %v", name, err)
+			continue
+		}
+		imported++
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"upperThreshold": upper,
-		"lowerThreshold": lower,
+		"success":  true,
+		"imported": imported,
+	})
+}
+
+func handleGetPlayerCR(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "Name parameter required")
+		return
+	}
+
+	player, err := getRegisteredPlayerByName(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if player == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"found": false,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"found":    true,
+		"name":     player.Name,
+		"compRank": player.CompRank,
+	})
+}
+
+func handleGetSubRules(w http.ResponseWriter, r *http.Request) {
+	tiers, err := getAllTiers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if tiers == nil {
+		tiers = []Tier{}
+	}
+
+	// Get simple threshold settings
+	maxOverageStr, _ := getSetting("sub_max_overage")
+	equalFloorStr, _ := getSetting("sub_equal_floor")
+
+	maxOverage := 0
+	equalFloor := 0
+	if maxOverageStr != "" {
+		maxOverage, _ = strconv.Atoi(maxOverageStr)
+	}
+	if equalFloorStr != "" {
+		equalFloor, _ = strconv.Atoi(equalFloorStr)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tiers":      tiers,
+		"maxOverage": maxOverage,
+		"equalFloor": equalFloor,
 	})
 }
 
@@ -1618,16 +1908,31 @@ func handleSetSubRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		UpperThreshold int `json:"upperThreshold"`
-		LowerThreshold int `json:"lowerThreshold"`
+		Tiers      []Tier `json:"tiers"`
+		MaxOverage int    `json:"maxOverage"`
+		EqualFloor int    `json:"equalFloor"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON")
 		return
 	}
 
-	setSetting("sub_upper_cr_threshold", strconv.Itoa(body.UpperThreshold))
-	setSetting("sub_lower_cr_threshold", strconv.Itoa(body.LowerThreshold))
+	// Save simple threshold settings
+	setSetting("sub_max_overage", strconv.Itoa(body.MaxOverage))
+	setSetting("sub_equal_floor", strconv.Itoa(body.EqualFloor))
+
+	// Delete all existing tiers and save new ones
+	db.Exec("DELETE FROM tiers")
+
+	for i, tier := range body.Tiers {
+		if tier.ID == "" {
+			tier.ID = fmt.Sprintf("tier-%d", i+1)
+		}
+		if tier.Name == "" {
+			tier.Name = fmt.Sprintf("Tier %d", i+1)
+		}
+		saveTier(tier)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
@@ -1636,17 +1941,19 @@ func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
 	outgoingCRStr := r.URL.Query().Get("cr")
 	outgoingCR, _ := strconv.Atoi(outgoingCRStr)
 
-	// Get thresholds
-	upperStr, _ := getSetting("sub_upper_cr_threshold")
-	lowerStr, _ := getSetting("sub_lower_cr_threshold")
-	upperThreshold, _ := strconv.Atoi(upperStr)
-	lowerThreshold, _ := strconv.Atoi(lowerStr)
+	// Get tiers
+	tiers, _ := getAllTiers()
 
-	if upperThreshold == 0 {
-		upperThreshold = 150
+	// Get threshold settings
+	maxOverageStr, _ := getSetting("sub_max_overage")
+	equalFloorStr, _ := getSetting("sub_equal_floor")
+	maxOverage := 0
+	equalFloor := 0
+	if maxOverageStr != "" {
+		maxOverage, _ = strconv.Atoi(maxOverageStr)
 	}
-	if lowerThreshold == 0 {
-		lowerThreshold = 30
+	if equalFloorStr != "" {
+		equalFloor, _ = strconv.Atoi(equalFloorStr)
 	}
 
 	// Get all available subs
@@ -1656,6 +1963,9 @@ func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Find which tier the outgoing player is in
+	outgoingTier := getTierForRank(outgoingCR, tiers)
+
 	// Filter eligible subs
 	eligible := []Sub{}
 	for _, sub := range allSubs {
@@ -1663,34 +1973,54 @@ func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Check eligibility based on CR rules
-		if isSubEligible(sub.CompRank, outgoingCR, upperThreshold, lowerThreshold) {
+		// Check eligibility based on rules
+		if isSubEligible(sub.CompRank, outgoingCR, outgoingTier, tiers, maxOverage, equalFloor) {
 			eligible = append(eligible, sub)
 		}
 	}
 
+	var tierName string
+	if outgoingTier != nil {
+		tierName = outgoingTier.Name
+	}
+
+	// Build explanation of why subs are eligible
+	var reason string
+	if outgoingCR <= equalFloor && equalFloor > 0 {
+		reason = fmt.Sprintf("Below equal floor (%d) - all low CR players eligible", equalFloor)
+	} else if outgoingTier != nil {
+		reason = fmt.Sprintf("In %s tier - same-tier subs allowed", tierName)
+	} else if maxOverage > 0 {
+		reason = fmt.Sprintf("CR up to %d allowed (outgoing %d + %d overage)", outgoingCR+maxOverage, outgoingCR, maxOverage)
+	} else {
+		reason = fmt.Sprintf("CR must be ≤ %d", outgoingCR)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"eligible":       eligible,
-		"outgoingCR":     outgoingCR,
-		"upperThreshold": upperThreshold,
-		"lowerThreshold": lowerThreshold,
+		"eligible":   eligible,
+		"outgoingCR": outgoingCR,
+		"tier":       tierName,
+		"tiers":      tiers,
+		"maxOverage": maxOverage,
+		"equalFloor": equalFloor,
+		"reason":     reason,
 	})
 }
 
-func isSubEligible(subCR, outgoingCR, upperThreshold, lowerThreshold int) bool {
-	// If outgoing player is above upper threshold, any sub above upper threshold is eligible
-	if outgoingCR >= upperThreshold {
-		return subCR >= upperThreshold || subCR <= outgoingCR
+func isSubEligible(subCR, outgoingCR int, outgoingTier *Tier, tiers []Tier, maxOverage, equalFloor int) bool {
+	// Rule 1: If both players are at or below the equal floor, they can sub for each other
+	if equalFloor > 0 && outgoingCR <= equalFloor && subCR <= equalFloor {
+		return true
 	}
 
-	// If outgoing player is below lower threshold, any sub below lower threshold is eligible
-	if outgoingCR <= lowerThreshold {
-		return subCR <= lowerThreshold || subCR <= outgoingCR
+	// Rule 2: If both are in the same tier, they can sub for each other
+	subTier := getTierForRank(subCR, tiers)
+	if outgoingTier != nil && subTier != nil && outgoingTier.ID == subTier.ID {
+		return true
 	}
 
-	// Normal case: sub CR must be <= outgoing CR
-	// But also allow if sub is below lower threshold (considered equal to low-rank players)
-	return subCR <= outgoingCR || subCR <= lowerThreshold
+	// Rule 3: Sub CR must be <= outgoing CR + maxOverage
+	return subCR <= outgoingCR+maxOverage
 }
 
 // ==================== ADMIN HANDLERS ====================
@@ -1744,6 +2074,49 @@ func handleImportWeeks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleGetUsers(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	users, err := getAllUsers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if users == nil {
+		users = []User{}
+	}
+
+	// Don't expose full user data, just what's needed for admin management
+	type UserInfo struct {
+		DiscordID   string `json:"discordId"`
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+		Avatar      string `json:"avatar"`
+		TeamName    string `json:"teamName"`
+		PlayerName  string `json:"playerName"`
+		IsAdmin     bool   `json:"isAdmin"`
+	}
+
+	var userInfos []UserInfo
+	for _, u := range users {
+		userInfos = append(userInfos, UserInfo{
+			DiscordID:   u.DiscordID,
+			Username:    u.Username,
+			DisplayName: u.DisplayName,
+			Avatar:      u.Avatar,
+			TeamName:    u.TeamID, // TeamID stores the team name
+			PlayerName:  u.PlayerName,
+			IsAdmin:     u.IsAdmin,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, userInfos)
+}
+
 func handleSetAdmin(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
 	if session == nil || !session.IsAdmin {
@@ -1760,16 +2133,27 @@ func handleSetAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prevent removing your own admin access
+	if body.DiscordID == session.DiscordID && !body.IsAdmin {
+		writeError(w, http.StatusBadRequest, "You cannot remove your own admin access")
+		return
+	}
+
 	user, _ := getUserByDiscordID(body.DiscordID)
 	if user == nil {
-		writeError(w, http.StatusNotFound, "User not found")
+		writeError(w, http.StatusNotFound, "User not found. They must log in at least once first.")
 		return
 	}
 
 	user.IsAdmin = body.IsAdmin
 	saveUser(*user)
 
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
+		"discordId":   user.DiscordID,
+		"displayName": user.DisplayName,
+		"isAdmin":     user.IsAdmin,
+	})
 }
 
 func handleSync(w http.ResponseWriter, r *http.Request) {
@@ -2526,10 +2910,16 @@ func main() {
 	r.HandleFunc("/api/admin/sub-rules", handleSetSubRules).Methods("POST")
 	r.HandleFunc("/api/subs/eligible", handleGetEligibleSubs).Methods("GET")
 
+	// Registered players routes
+	r.HandleFunc("/api/players", handleGetRegisteredPlayers).Methods("GET")
+	r.HandleFunc("/api/admin/import-players", handleImportRegisteredPlayers).Methods("POST")
+	r.HandleFunc("/api/players/lookup", handleGetPlayerCR).Methods("GET")
+
 	// Admin routes
+	r.HandleFunc("/api/admin/users", handleGetUsers).Methods("GET")
+	r.HandleFunc("/api/admin/set-admin", handleSetAdmin).Methods("POST")
 	r.HandleFunc("/api/admin/import-teams", handleImportTeams).Methods("POST")
 	r.HandleFunc("/api/admin/import-weeks", handleImportWeeks).Methods("POST")
-	r.HandleFunc("/api/admin/set-admin", handleSetAdmin).Methods("POST")
 	r.HandleFunc("/api/admin/sync", handleSync).Methods("POST")
 	r.HandleFunc("/api/admin/sync-status", handleGetSyncStatus).Methods("GET")
 	r.HandleFunc("/api/admin/import-from-url", handleImportFromURL).Methods("POST")

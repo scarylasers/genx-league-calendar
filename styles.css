@@ -1582,6 +1582,337 @@ body {
     margin-top: 4px;
 }
 
+/* Sub Rules Configuration */
+.sub-rules-config {
+    margin-top: 15px;
+}
+
+.sub-rules-config h4 {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+    margin-top: 20px;
+}
+
+.sub-rules-config h4:first-child {
+    margin-top: 0;
+}
+
+.threshold-settings {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--bg-dark);
+    border-radius: 8px;
+}
+
+.rules-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
+}
+
+/* Tiers Configuration */
+.tiers-config {
+    margin-top: 15px;
+}
+
+.tiers-config h4 {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+}
+
+.tier-form {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--bg-dark);
+    border-radius: 8px;
+}
+
+.tier-form .form-row {
+    margin-bottom: 0;
+}
+
+.tier-form .form-row label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.tier-form .form-row input {
+    padding: 8px 10px;
+}
+
+.tiers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.tier-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.tier-info {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.tier-name {
+    font-weight: 600;
+    color: var(--primary-light);
+}
+
+.tier-range {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    background: var(--bg-card);
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+
+.form-row small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 4px;
+}
+
+/* Registered Players List */
+.registered-players-list {
+    margin-top: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.players-table {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.players-header {
+    display: flex;
+    padding: 12px 15px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.player-row {
+    display: flex;
+    padding: 10px 15px;
+    border-bottom: 1px solid var(--border);
+}
+
+.player-row:last-child {
+    border-bottom: none;
+}
+
+.player-row:hover {
+    background: var(--bg-card-hover);
+}
+
+.player-col-name {
+    flex: 1;
+}
+
+.player-col-cr {
+    width: 80px;
+    text-align: right;
+    color: #fbbf24;
+    font-weight: 500;
+}
+
+/* CR Display in Registration */
+.cr-display {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 12px 15px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.cr-display .cr-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    min-width: 50px;
+}
+
+.cr-display .cr-value.found {
+    color: #fbbf24;
+}
+
+.cr-display .cr-status {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.cr-display .cr-status.success {
+    color: var(--accent);
+}
+
+.cr-display .cr-status.error {
+    color: var(--danger);
+}
+
+.register-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 12px 15px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    margin-bottom: 15px;
+}
+
+/* Admin Users List */
+.admin-users-list {
+    margin-top: 15px;
+}
+
+.users-table {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.users-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    gap: 10px;
+}
+
+.user-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+}
+
+.user-row:last-child {
+    border-bottom: none;
+}
+
+.user-row:hover {
+    background: var(--bg-card-hover);
+}
+
+.user-row.is-admin {
+    background: rgba(79, 70, 229, 0.1);
+}
+
+.user-row.is-me {
+    border-left: 3px solid var(--primary);
+}
+
+.user-col-avatar {
+    width: 40px;
+    flex-shrink: 0;
+}
+
+.user-mini-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+}
+
+.user-row.is-admin .user-mini-avatar {
+    border-color: var(--primary);
+}
+
+.user-col-name {
+    flex: 1;
+    min-width: 150px;
+}
+
+.user-display-name {
+    font-weight: 600;
+    display: block;
+}
+
+.user-username {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.user-col-team {
+    flex: 1;
+    min-width: 120px;
+    font-size: 0.9rem;
+}
+
+.user-col-team .not-linked {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.user-col-team small {
+    color: var(--text-secondary);
+}
+
+.user-col-admin {
+    width: 120px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.admin-badge-you {
+    display: inline-block;
+    padding: 4px 12px;
+    background: var(--primary);
+    color: white;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.loading {
+    color: var(--text-secondary);
+    padding: 20px;
+    text-align: center;
+}
+
+.error {
+    color: var(--danger);
+    padding: 20px;
+    text-align: center;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header {

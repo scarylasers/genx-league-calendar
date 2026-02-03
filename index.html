@@ -94,7 +94,6 @@
                 <label>Sort by: </label>
                 <select id="subSortBy" onchange="renderSubPool()">
                     <option value="compRank">Comp Rank (High to Low)</option>
-                    <option value="xRank">X Rank (High to Low)</option>
                     <option value="name">Name (A-Z)</option>
                 </select>
                 <label style="margin-left: 15px;">
@@ -188,22 +187,51 @@
             </div>
 
             <div class="admin-section">
-                <h3>Sub Matching Rules</h3>
-                <p>Configure the Comp Rank thresholds for sub eligibility.</p>
-                <div class="settings-row">
-                    <div class="form-row" style="max-width: 250px;">
-                        <label for="upperCRThreshold">Upper CR Threshold:</label>
-                        <input type="number" id="upperCRThreshold" placeholder="150" min="0">
-                        <small>Players above this CR are considered equal</small>
+                <h3>Sub Eligibility Rules</h3>
+                <p>Configure who can sub for whom based on Comp Rank.</p>
+
+                <div class="sub-rules-config">
+                    <h4>Basic Thresholds</h4>
+                    <div class="threshold-settings">
+                        <div class="form-row" style="max-width: 300px;">
+                            <label for="maxOverage">Max Overage (how much higher a sub can be):</label>
+                            <input type="number" id="maxOverage" placeholder="0" min="0" value="0">
+                            <small>e.g., 5 means a sub can be up to 5 CR higher than the player being replaced</small>
+                        </div>
+                        <div class="form-row" style="max-width: 300px;">
+                            <label for="equalFloor">Equal Floor (below this, everyone is equal):</label>
+                            <input type="number" id="equalFloor" placeholder="0" min="0" value="0">
+                            <small>e.g., 30 means anyone with CR ≤ 30 can sub for anyone else with CR ≤ 30</small>
+                        </div>
                     </div>
-                    <div class="form-row" style="max-width: 250px;">
-                        <label for="lowerCRThreshold">Lower CR Threshold:</label>
-                        <input type="number" id="lowerCRThreshold" placeholder="30" min="0">
-                        <small>Players below this CR are considered equal</small>
+
+                    <h4>Special Tiers (Optional)</h4>
+                    <p class="import-hint">Create tiers where players within the same range can sub for each other regardless of individual CR.</p>
+                    <div class="tier-form">
+                        <div class="form-row" style="display: inline-block; max-width: 150px;">
+                            <label for="newTierName">Name:</label>
+                            <input type="text" id="newTierName" placeholder="e.g., Pro">
+                        </div>
+                        <div class="form-row" style="display: inline-block; max-width: 100px;">
+                            <label for="newTierMin">Min CR:</label>
+                            <input type="number" id="newTierMin" placeholder="115" min="0">
+                        </div>
+                        <div class="form-row" style="display: inline-block; max-width: 100px;">
+                            <label for="newTierMax">Max CR:</label>
+                            <input type="number" id="newTierMax" placeholder="200" min="0">
+                        </div>
+                        <button class="btn btn-secondary" onclick="addTier()">Add Tier</button>
+                    </div>
+
+                    <div id="tiersList" class="tiers-list">
+                        <!-- Populated dynamically -->
+                    </div>
+
+                    <div class="rules-actions">
+                        <button class="btn btn-primary" onclick="saveSubRules()">Save All Rules</button>
+                        <span class="import-note" id="subRulesStatus"></span>
                     </div>
                 </div>
-                <button class="btn btn-primary" onclick="saveSubRules()">Save Rules</button>
-                <p class="import-note" id="subRulesStatus"></p>
             </div>
 
             <div class="admin-section">
@@ -213,6 +241,17 @@
                     <button class="btn btn-secondary" onclick="showImportTeamsModal()">Import Teams</button>
                     <button class="btn btn-secondary" onclick="showImportWeeksModal()">Import Schedule</button>
                     <button class="btn btn-secondary" onclick="showImportSubsModal()">Import Subs</button>
+                    <button class="btn btn-secondary" onclick="showImportPlayersModal()">Import Registered Players</button>
+                </div>
+            </div>
+
+            <div class="admin-section">
+                <h3>Registered Players</h3>
+                <p>All players who have registered via stat-bot. This data is used to auto-fill CR when players register as subs.</p>
+                <p class="import-note">Total registered: <span id="registeredPlayersCount">0</span> players</p>
+                <button class="btn btn-secondary" onclick="toggleRegisteredPlayersList()">Show/Hide Player List</button>
+                <div id="registeredPlayersList" class="registered-players-list" style="display: none;">
+                    <!-- Populated dynamically -->
                 </div>
             </div>
 
@@ -220,6 +259,15 @@
                 <h3>All Weeks</h3>
                 <div id="adminWeeksList" class="admin-weeks-list">
                     <!-- Admin weeks list -->
+                </div>
+            </div>
+
+            <div class="admin-section">
+                <h3>Admin Management</h3>
+                <p>Grant or revoke admin access for users. Users must have logged in at least once to appear here.</p>
+                <button class="btn btn-secondary" onclick="loadAdminUsers()">Refresh User List</button>
+                <div id="adminUsersList" class="admin-users-list">
+                    <!-- Users list populated dynamically -->
                 </div>
             </div>
         </section>
@@ -313,21 +361,23 @@ Week 2	Lobby 1	..."></textarea>
                 <div class="form-row">
                     <label for="subName">In-Game Name:</label>
                     <input type="text" id="subName" placeholder="Your in-game name">
+                    <small>Must match your registered name exactly</small>
                 </div>
                 <div class="form-row">
-                    <label for="subXRank">X Rank:</label>
-                    <input type="number" id="subXRank" placeholder="0" min="0">
-                </div>
-                <div class="form-row">
-                    <label for="subCompRank">Comp Rank:</label>
-                    <input type="number" id="subCompRank" placeholder="0" min="0">
+                    <label>Comp Rank (CR):</label>
+                    <div id="subCRDisplay" class="cr-display">
+                        <span class="cr-value">--</span>
+                        <span class="cr-status">Enter your name to lookup CR</span>
+                    </div>
+                    <small>CR is pulled from the registered players list</small>
                 </div>
                 <div class="form-row">
                     <label for="subNotes">Notes (optional):</label>
                     <input type="text" id="subNotes" placeholder="e.g., Available weekends only">
                 </div>
+                <div id="subRegisterError" class="register-error" style="display: none;"></div>
                 <div class="modal-buttons">
-                    <button class="btn btn-primary" onclick="registerAsSub()">Register</button>
+                    <button class="btn btn-primary" id="registerSubSubmitBtn" onclick="registerAsSub()" disabled>Register</button>
                     <button class="btn btn-secondary" onclick="closeRegisterSubModal()">Cancel</button>
                 </div>
             </div>
@@ -338,16 +388,40 @@ Week 2	Lobby 1	..."></textarea>
             <div class="modal-content modal-large">
                 <h3>Import Subs from Stat-Bot</h3>
                 <p>Copy the sub list from the <strong>/register list</strong> command and paste below:</p>
-                <p class="import-hint">Expected format: Name X Rank: ### Comp Rank: ###</p>
+                <p class="import-hint">Expected format: (CR)    IGN</p>
                 <textarea id="subsData" rows="12" placeholder="Paste stat-bot data here...
 
 Example:
-f(x,y,z) X Rank: 119 Comp Rank: 173
-VDT.ElephantGhost X Rank: 159 Comp Rank: 157
-GO_Lester X Rank: 175 Comp Rank: 145"></textarea>
+(163)    F(xyz)
+(159)    VDT.ElephantGhost
+(145)    GO_Lester"></textarea>
                 <div class="modal-buttons">
                     <button class="btn btn-primary" onclick="importSubsFromPaste()">Import Subs</button>
                     <button class="btn btn-secondary" onclick="closeImportSubsModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import Registered Players Modal -->
+        <div id="importPlayersModal" class="modal">
+            <div class="modal-content modal-large">
+                <h3>Import Registered Players from Stat-Bot</h3>
+                <p>Copy the registered players list from the <strong>/register list</strong> command and paste below:</p>
+                <p class="import-hint">Expected format: (CR)    IGN</p>
+                <textarea id="playersData" rows="12" placeholder="Paste stat-bot data here...
+
+Example:
+(163)    F(xyz)
+(159)    VDT.ElephantGhost
+(145)    GO_Lester"></textarea>
+                <div class="form-row" style="margin-top: 10px;">
+                    <label>
+                        <input type="checkbox" id="replacePlayersOnImport"> Replace all existing players (uncheck to merge/update)
+                    </label>
+                </div>
+                <div class="modal-buttons">
+                    <button class="btn btn-primary" onclick="importPlayersFromPaste()">Import Players</button>
+                    <button class="btn btn-secondary" onclick="closeImportPlayersModal()">Cancel</button>
                 </div>
             </div>
         </div>
