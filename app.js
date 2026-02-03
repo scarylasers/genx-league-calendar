@@ -6,8 +6,10 @@
 let currentUser = null;
 let teams = [];
 let weeks = [];
+let subs = [];
 let userAvailability = {};
 let myTeam = null;
+let mySub = null; // If current user is registered as sub
 
 // ==================== INIT ====================
 
@@ -20,9 +22,11 @@ async function init() {
     await checkAuth();
     await fetchTeams();
     await fetchWeeks();
+    await fetchSubs();
 
     renderWeeksList();
     renderTeamRoster();
+    renderSubPool();
 
     // Handle Discord link with week parameter
     handleWeekLinkParam();
@@ -986,6 +990,239 @@ async function importScheduleFromPaste() {
     } catch (err) {
         console.error('Import error:', err);
         alert('Failed to import schedule');
+    }
+}
+
+// ==================== SUB POOL ====================
+
+async function fetchSubs() {
+    try {
+        const res = await fetch('/api/subs', { credentials: 'include' });
+        if (res.ok) {
+            subs = await res.json();
+            // Check if current user is registered as sub
+            if (currentUser) {
+                mySub = subs.find(s => s.discordId === currentUser.discordId);
+            }
+        }
+    } catch (err) {
+        console.error('Failed to fetch subs:', err);
+        subs = [];
+    }
+}
+
+function renderSubPool() {
+    const container = document.getElementById('subPoolList');
+    if (!container) return;
+
+    // Update action buttons based on login state
+    updateSubPoolActions();
+
+    // Get filter settings
+    const sortBy = document.getElementById('subSortBy')?.value || 'compRank';
+    const availableOnly = document.getElementById('showAvailableOnly')?.checked ?? true;
+
+    // Filter and sort subs
+    let filteredSubs = [...subs];
+    if (availableOnly) {
+        filteredSubs = filteredSubs.filter(s => s.available);
+    }
+
+    filteredSubs.sort((a, b) => {
+        if (sortBy === 'compRank') return (b.compRank || 0) - (a.compRank || 0);
+        if (sortBy === 'xRank') return (b.xRank || 0) - (a.xRank || 0);
+        if (sortBy === 'name') return a.name.localeCompare(b.name);
+        return 0;
+    });
+
+    if (filteredSubs.length === 0) {
+        container.innerHTML = '<p class="no-data">No subs available. Be the first to register!</p>';
+        return;
+    }
+
+    container.innerHTML = filteredSubs.map(sub => `
+        <div class="sub-card ${sub.available ? 'available' : 'unavailable'} ${mySub?.id === sub.id ? 'is-me' : ''}">
+            <div class="sub-info">
+                <span class="sub-name">${escapeHtml(sub.name)}</span>
+                ${sub.discordName ? `<span class="sub-discord">@${escapeHtml(sub.discordName)}</span>` : ''}
+            </div>
+            <div class="sub-ranks">
+                <span class="rank comp-rank" title="Comp Rank">CR: ${sub.compRank || '?'}</span>
+                <span class="rank x-rank" title="X Rank">XR: ${sub.xRank || '?'}</span>
+            </div>
+            <div class="sub-status">
+                <span class="status-badge ${sub.available ? 'available' : 'unavailable'}">
+                    ${sub.available ? '✓ Available' : '✗ Unavailable'}
+                </span>
+            </div>
+            ${sub.notes ? `<div class="sub-notes">${escapeHtml(sub.notes)}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+function updateSubPoolActions() {
+    const registerBtn = document.getElementById('registerSubBtn');
+    const unregisterBtn = document.getElementById('unregisterSubBtn');
+    const toggleBtn = document.getElementById('toggleSubAvailBtn');
+
+    if (!currentUser) {
+        // Not logged in - hide all buttons
+        if (registerBtn) registerBtn.style.display = 'none';
+        if (unregisterBtn) unregisterBtn.style.display = 'none';
+        if (toggleBtn) toggleBtn.style.display = 'none';
+        return;
+    }
+
+    if (mySub) {
+        // Already registered - show unregister and toggle
+        if (registerBtn) registerBtn.style.display = 'none';
+        if (unregisterBtn) unregisterBtn.style.display = 'inline-block';
+        if (toggleBtn) {
+            toggleBtn.style.display = 'inline-block';
+            toggleBtn.textContent = mySub.available ? 'Mark Unavailable' : 'Mark Available';
+        }
+    } else {
+        // Not registered - show register button
+        if (registerBtn) registerBtn.style.display = 'inline-block';
+        if (unregisterBtn) unregisterBtn.style.display = 'none';
+        if (toggleBtn) toggleBtn.style.display = 'none';
+    }
+}
+
+function showRegisterSubModal() {
+    // Pre-fill with user info if available
+    if (currentUser?.playerName) {
+        document.getElementById('subName').value = currentUser.playerName;
+    }
+    document.getElementById('registerSubModal').classList.add('active');
+}
+
+function closeRegisterSubModal() {
+    document.getElementById('registerSubModal').classList.remove('active');
+}
+
+async function registerAsSub() {
+    const name = document.getElementById('subName').value.trim();
+    const xRank = parseInt(document.getElementById('subXRank').value) || 0;
+    const compRank = parseInt(document.getElementById('subCompRank').value) || 0;
+    const notes = document.getElementById('subNotes').value.trim();
+
+    if (!name) {
+        alert('Please enter your in-game name');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/subs/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name, xRank, compRank, notes })
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            mySub = data.sub;
+            closeRegisterSubModal();
+            await fetchSubs();
+            renderSubPool();
+            alert('You are now registered as a sub!');
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to register');
+        }
+    } catch (err) {
+        console.error('Register error:', err);
+        alert('Failed to register as sub');
+    }
+}
+
+async function unregisterAsSub() {
+    if (!confirm('Remove yourself from the sub pool?')) return;
+
+    try {
+        const res = await fetch('/api/subs/unregister', {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            mySub = null;
+            await fetchSubs();
+            renderSubPool();
+            alert('You have been removed from the sub pool.');
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to unregister');
+        }
+    } catch (err) {
+        console.error('Unregister error:', err);
+        alert('Failed to unregister');
+    }
+}
+
+async function toggleSubAvailability() {
+    if (!mySub) return;
+
+    try {
+        const res = await fetch('/api/subs/availability', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ available: !mySub.available })
+        });
+
+        if (res.ok) {
+            mySub.available = !mySub.available;
+            await fetchSubs();
+            renderSubPool();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to update availability');
+        }
+    } catch (err) {
+        console.error('Toggle error:', err);
+        alert('Failed to update availability');
+    }
+}
+
+// Admin: Import subs
+function showImportSubsModal() {
+    document.getElementById('importSubsModal').classList.add('active');
+}
+
+function closeImportSubsModal() {
+    document.getElementById('importSubsModal').classList.remove('active');
+}
+
+async function importSubsFromPaste() {
+    const text = document.getElementById('subsData').value.trim();
+    if (!text) {
+        alert('Please paste the subs data');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/import-subs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ data: text })
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            alert(`Imported ${result.imported} subs!`);
+            closeImportSubsModal();
+            await fetchSubs();
+            renderSubPool();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to import');
+        }
+    } catch (err) {
+        console.error('Import error:', err);
+        alert('Failed to import subs');
     }
 }
 

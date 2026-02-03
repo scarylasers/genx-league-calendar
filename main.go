@@ -74,6 +74,18 @@ type TeamAvailability struct {
 	SubsNeeded  int      `json:"subsNeeded"`  // How many subs needed
 }
 
+type Sub struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	DiscordID    string `json:"discordId,omitempty"`
+	DiscordName  string `json:"discordName,omitempty"`
+	XRank        int    `json:"xRank"`
+	CompRank     int    `json:"compRank"`
+	Available    bool   `json:"available"`
+	Notes        string `json:"notes,omitempty"`
+	LastActive   string `json:"lastActive,omitempty"`
+}
+
 type User struct {
 	DiscordID   string `json:"discordId"`
 	Username    string `json:"username"`
@@ -162,6 +174,17 @@ func initDB() error {
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS subs (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			discord_id TEXT,
+			discord_name TEXT,
+			x_rank INTEGER DEFAULT 0,
+			comp_rank INTEGER DEFAULT 0,
+			available BOOLEAN DEFAULT TRUE,
+			notes TEXT,
+			last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 	}
 
@@ -528,6 +551,97 @@ func saveAvailability(ta TeamAvailability) error {
 		ON CONFLICT (team_id, week_id) DO UPDATE SET
 			available = $3, unavailable = $4, subs_needed = $5
 	`, ta.TeamID, ta.WeekID, string(availJSON), string(unavailJSON), ta.SubsNeeded)
+	return err
+}
+
+// ==================== SUB POOL FUNCTIONS ====================
+
+func getAllSubs() ([]Sub, error) {
+	rows, err := db.Query("SELECT id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active FROM subs ORDER BY comp_rank DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []Sub
+	for rows.Next() {
+		var s Sub
+		var discordID, discordName, notes sql.NullString
+		var lastActive sql.NullTime
+		if err := rows.Scan(&s.ID, &s.Name, &discordID, &discordName, &s.XRank, &s.CompRank, &s.Available, &notes, &lastActive); err != nil {
+			continue
+		}
+		s.DiscordID = discordID.String
+		s.DiscordName = discordName.String
+		s.Notes = notes.String
+		if lastActive.Valid {
+			s.LastActive = lastActive.Time.Format(time.RFC3339)
+		}
+		subs = append(subs, s)
+	}
+	return subs, nil
+}
+
+func getSubByID(id string) (*Sub, error) {
+	var s Sub
+	var discordID, discordName, notes sql.NullString
+	var lastActive sql.NullTime
+	err := db.QueryRow(`
+		SELECT id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active
+		FROM subs WHERE id = $1
+	`, id).Scan(&s.ID, &s.Name, &discordID, &discordName, &s.XRank, &s.CompRank, &s.Available, &notes, &lastActive)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.DiscordID = discordID.String
+	s.DiscordName = discordName.String
+	s.Notes = notes.String
+	if lastActive.Valid {
+		s.LastActive = lastActive.Time.Format(time.RFC3339)
+	}
+	return &s, nil
+}
+
+func getSubByDiscordID(discordID string) (*Sub, error) {
+	var s Sub
+	var dID, discordName, notes sql.NullString
+	var lastActive sql.NullTime
+	err := db.QueryRow(`
+		SELECT id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active
+		FROM subs WHERE discord_id = $1
+	`, discordID).Scan(&s.ID, &s.Name, &dID, &discordName, &s.XRank, &s.CompRank, &s.Available, &notes, &lastActive)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.DiscordID = dID.String
+	s.DiscordName = discordName.String
+	s.Notes = notes.String
+	if lastActive.Valid {
+		s.LastActive = lastActive.Time.Format(time.RFC3339)
+	}
+	return &s, nil
+}
+
+func saveSub(s Sub) error {
+	_, err := db.Exec(`
+		INSERT INTO subs (id, name, discord_id, discord_name, x_rank, comp_rank, available, notes, last_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+		ON CONFLICT (id) DO UPDATE SET
+			name = $2, discord_id = $3, discord_name = $4, x_rank = $5, comp_rank = $6, available = $7, notes = $8, last_active = CURRENT_TIMESTAMP
+	`, s.ID, s.Name, s.DiscordID, s.DiscordName, s.XRank, s.CompRank, s.Available, s.Notes)
+	return err
+}
+
+func deleteSub(id string) error {
+	_, err := db.Exec("DELETE FROM subs WHERE id = $1", id)
 	return err
 }
 
@@ -1283,6 +1397,196 @@ func handleAnnounceWeek(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// ==================== SUB POOL HANDLERS ====================
+
+func handleGetSubs(w http.ResponseWriter, r *http.Request) {
+	subs, err := getAllSubs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if subs == nil {
+		subs = []Sub{}
+	}
+	writeJSON(w, http.StatusOK, subs)
+}
+
+func handleRegisterAsSub(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Must be logged in")
+		return
+	}
+
+	var body struct {
+		Name     string `json:"name"`
+		XRank    int    `json:"xRank"`
+		CompRank int    `json:"compRank"`
+		Notes    string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Use player name if linked, otherwise use provided name or discord name
+	name := body.Name
+	if name == "" && session.PlayerName != "" {
+		name = session.PlayerName
+	}
+	if name == "" {
+		name = session.DisplayName
+	}
+
+	sub := Sub{
+		ID:          "sub-" + session.DiscordID,
+		Name:        name,
+		DiscordID:   session.DiscordID,
+		DiscordName: session.Username,
+		XRank:       body.XRank,
+		CompRank:    body.CompRank,
+		Available:   true,
+		Notes:       body.Notes,
+	}
+
+	if err := saveSub(sub); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"sub":     sub,
+	})
+}
+
+func handleUpdateSubAvailability(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Must be logged in")
+		return
+	}
+
+	var body struct {
+		Available bool `json:"available"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Find sub by discord ID
+	sub, err := getSubByDiscordID(session.DiscordID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if sub == nil {
+		writeError(w, http.StatusNotFound, "You are not registered as a sub")
+		return
+	}
+
+	sub.Available = body.Available
+	if err := saveSub(*sub); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func handleUnregisterSub(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Must be logged in")
+		return
+	}
+
+	// Find and delete sub by discord ID
+	sub, _ := getSubByDiscordID(session.DiscordID)
+	if sub == nil {
+		writeError(w, http.StatusNotFound, "You are not registered as a sub")
+		return
+	}
+
+	if err := deleteSub(sub.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func handleImportSubs(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		Data string `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Parse the stat-bot format:
+	// Name X Rank: ### Comp Rank: ###
+	lines := strings.Split(body.Data, "\n")
+	imported := 0
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse: "f(x,y,z) X Rank: 119 Comp Rank: 173"
+		xRankIdx := strings.Index(line, " X Rank: ")
+		if xRankIdx == -1 {
+			continue
+		}
+
+		name := strings.TrimSpace(line[:xRankIdx])
+		rest := line[xRankIdx+9:] // after " X Rank: "
+
+		compRankIdx := strings.Index(rest, " Comp Rank: ")
+		if compRankIdx == -1 {
+			continue
+		}
+
+		xRankStr := strings.TrimSpace(rest[:compRankIdx])
+		compRankStr := strings.TrimSpace(rest[compRankIdx+12:])
+
+		xRank, _ := strconv.Atoi(xRankStr)
+		compRank, _ := strconv.Atoi(compRankStr)
+
+		// Create sub ID from name (lowercase, replace spaces)
+		subID := "sub-" + strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, " ", "-"), ".", "-"))
+
+		sub := Sub{
+			ID:        subID,
+			Name:      name,
+			XRank:     xRank,
+			CompRank:  compRank,
+			Available: true,
+		}
+
+		if err := saveSub(sub); err != nil {
+			log.Printf("Failed to save sub %s: %v", name, err)
+			continue
+		}
+		imported++
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"imported": imported,
+	})
 }
 
 // ==================== ADMIN HANDLERS ====================
@@ -2107,6 +2411,13 @@ func main() {
 	r.HandleFunc("/api/webhook", handleGetWebhook).Methods("GET")
 	r.HandleFunc("/api/webhook", handleSetWebhook).Methods("POST")
 	r.HandleFunc("/api/announce", handleAnnounceWeek).Methods("POST")
+
+	// Sub pool routes
+	r.HandleFunc("/api/subs", handleGetSubs).Methods("GET")
+	r.HandleFunc("/api/subs/register", handleRegisterAsSub).Methods("POST")
+	r.HandleFunc("/api/subs/availability", handleUpdateSubAvailability).Methods("PUT")
+	r.HandleFunc("/api/subs/unregister", handleUnregisterSub).Methods("DELETE")
+	r.HandleFunc("/api/admin/import-subs", handleImportSubs).Methods("POST")
 
 	// Admin routes
 	r.HandleFunc("/api/admin/import-teams", handleImportTeams).Methods("POST")

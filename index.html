@@ -46,6 +46,7 @@
         <nav class="tabs">
             <button class="tab active" data-tab="schedule">My Schedule</button>
             <button class="tab" data-tab="team">My Team</button>
+            <button class="tab" data-tab="subs">Sub Pool</button>
             <button class="tab" data-tab="settings">Team Settings</button>
             <button class="tab" data-tab="help">Help</button>
             <button class="tab admin-only" data-tab="admin" style="display: none;">League Admin</button>
@@ -74,6 +75,35 @@
                 <div id="teamRoster" class="team-roster-full">
                     <!-- Roster populated here -->
                 </div>
+            </div>
+        </section>
+
+        <!-- Sub Pool Tab -->
+        <section id="subs" class="tab-content">
+            <div class="sub-pool-header">
+                <h2>Sub Pool</h2>
+                <div id="subPoolActions">
+                    <button id="registerSubBtn" class="btn btn-primary" onclick="showRegisterSubModal()" style="display: none;">Register as Sub</button>
+                    <button id="unregisterSubBtn" class="btn btn-danger" onclick="unregisterAsSub()" style="display: none;">Remove Me from Pool</button>
+                    <button id="toggleSubAvailBtn" class="btn btn-secondary" onclick="toggleSubAvailability()" style="display: none;">Toggle Availability</button>
+                </div>
+            </div>
+            <p class="section-desc">Available subs for the season. Contact them directly on Discord when you need a sub.</p>
+
+            <div class="sub-pool-filters">
+                <label>Sort by: </label>
+                <select id="subSortBy" onchange="renderSubPool()">
+                    <option value="compRank">Comp Rank (High to Low)</option>
+                    <option value="xRank">X Rank (High to Low)</option>
+                    <option value="name">Name (A-Z)</option>
+                </select>
+                <label style="margin-left: 15px;">
+                    <input type="checkbox" id="showAvailableOnly" onchange="renderSubPool()" checked> Available only
+                </label>
+            </div>
+
+            <div id="subPoolList" class="sub-pool-list">
+                <!-- Subs populated here -->
             </div>
         </section>
 
@@ -152,6 +182,7 @@
                 <div class="import-buttons">
                     <button class="btn btn-secondary" onclick="showImportTeamsModal()">Import Teams</button>
                     <button class="btn btn-secondary" onclick="showImportWeeksModal()">Import Schedule</button>
+                    <button class="btn btn-secondary" onclick="showImportSubsModal()">Import Subs</button>
                 </div>
             </div>
 
@@ -240,6 +271,53 @@ Week 2	Lobby 1	..."></textarea>
                 <div class="modal-buttons">
                     <button class="btn btn-primary" onclick="importScheduleFromPaste()">Import Schedule</button>
                     <button class="btn btn-secondary" onclick="closeImportWeeksModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Register as Sub Modal -->
+        <div id="registerSubModal" class="modal">
+            <div class="modal-content">
+                <h3>Register as Sub</h3>
+                <p>Add yourself to the sub pool so teams can find you when they need a sub.</p>
+                <div class="form-row">
+                    <label for="subName">In-Game Name:</label>
+                    <input type="text" id="subName" placeholder="Your in-game name">
+                </div>
+                <div class="form-row">
+                    <label for="subXRank">X Rank:</label>
+                    <input type="number" id="subXRank" placeholder="0" min="0">
+                </div>
+                <div class="form-row">
+                    <label for="subCompRank">Comp Rank:</label>
+                    <input type="number" id="subCompRank" placeholder="0" min="0">
+                </div>
+                <div class="form-row">
+                    <label for="subNotes">Notes (optional):</label>
+                    <input type="text" id="subNotes" placeholder="e.g., Available weekends only">
+                </div>
+                <div class="modal-buttons">
+                    <button class="btn btn-primary" onclick="registerAsSub()">Register</button>
+                    <button class="btn btn-secondary" onclick="closeRegisterSubModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import Subs Modal -->
+        <div id="importSubsModal" class="modal">
+            <div class="modal-content modal-large">
+                <h3>Import Subs from Stat-Bot</h3>
+                <p>Copy the sub list from the <strong>/register list</strong> command and paste below:</p>
+                <p class="import-hint">Expected format: Name X Rank: ### Comp Rank: ###</p>
+                <textarea id="subsData" rows="12" placeholder="Paste stat-bot data here...
+
+Example:
+f(x,y,z) X Rank: 119 Comp Rank: 173
+VDT.ElephantGhost X Rank: 159 Comp Rank: 157
+GO_Lester X Rank: 175 Comp Rank: 145"></textarea>
+                <div class="modal-buttons">
+                    <button class="btn btn-primary" onclick="importSubsFromPaste()">Import Subs</button>
+                    <button class="btn btn-secondary" onclick="closeImportSubsModal()">Cancel</button>
                 </div>
             </div>
         </div>
