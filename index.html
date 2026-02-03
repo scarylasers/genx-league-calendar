@@ -130,11 +130,23 @@
             <h2>League Admin</h2>
 
             <div class="admin-section">
-                <h3>Import Data</h3>
-                <p>Import teams and schedule from the spreadsheet.</p>
+                <h3>Google Sheets Sync</h3>
+                <p>Data syncs automatically from the spreadsheet every 15 minutes.</p>
+                <div id="syncStatus" class="sync-status-box">
+                    <span id="syncStatusText">Checking...</span>
+                </div>
+                <div class="sync-actions">
+                    <button class="btn btn-primary" onclick="triggerSync()">Sync Now</button>
+                    <a id="sheetLink" href="#" target="_blank" class="btn btn-secondary" style="display: none;">Open Spreadsheet</a>
+                </div>
+            </div>
+
+            <div class="admin-section">
+                <h3>Manual Import</h3>
+                <p>Or manually import JSON data:</p>
                 <div class="import-buttons">
-                    <button class="btn btn-primary" onclick="showImportTeamsModal()">Import Teams</button>
-                    <button class="btn btn-primary" onclick="showImportWeeksModal()">Import Schedule</button>
+                    <button class="btn btn-secondary" onclick="showImportTeamsModal()">Import Teams JSON</button>
+                    <button class="btn btn-secondary" onclick="showImportWeeksModal()">Import Schedule JSON</button>
                 </div>
             </div>
 

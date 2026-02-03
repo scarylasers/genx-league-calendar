@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"google.golang.org/api/option"
+	"google.golang.org/api/sheets/v4"
 )
 
 // ==================== CONFIG ====================
@@ -28,6 +31,9 @@ var (
 	discordBotToken     = os.Getenv("DISCORD_BOT_TOKEN")
 	sessionSecret       = os.Getenv("SESSION_SECRET")
 	baseURL             = os.Getenv("BASE_URL")
+	googleSheetsID      = os.Getenv("GOOGLE_SHEETS_ID")
+	googleServiceJSON   = os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+	sheetsService       *sheets.Service
 )
 
 // ==================== DATA STRUCTURES ====================
@@ -180,6 +186,190 @@ func getTeamSetting(teamName, key string) (string, error) {
 func setTeamSetting(teamName, key, value string) error {
 	settingKey := fmt.Sprintf("team:%s:%s", teamName, key)
 	return setSetting(settingKey, value)
+}
+
+// ==================== GOOGLE SHEETS ====================
+
+func initSheetsService() error {
+	if googleServiceJSON == "" {
+		log.Println("Google Sheets not configured (no service account JSON)")
+		return nil
+	}
+
+	ctx := context.Background()
+	srv, err := sheets.NewService(ctx, option.WithCredentialsJSON([]byte(googleServiceJSON)))
+	if err != nil {
+		return fmt.Errorf("failed to create sheets service: %v", err)
+	}
+	sheetsService = srv
+	log.Println("Google Sheets service initialized")
+	return nil
+}
+
+func syncFromSheets() error {
+	if sheetsService == nil || googleSheetsID == "" {
+		return fmt.Errorf("Google Sheets not configured")
+	}
+
+	log.Println("Starting sync from Google Sheets...")
+
+	// Sync Teams
+	if err := syncTeamsFromSheets(); err != nil {
+		log.Printf("Warning: Failed to sync teams: %v", err)
+	}
+
+	// Sync Schedule
+	if err := syncScheduleFromSheets(); err != nil {
+		log.Printf("Warning: Failed to sync schedule: %v", err)
+	}
+
+	// Update last sync time
+	setSetting("last_sync", time.Now().UTC().Format(time.RFC3339))
+
+	log.Println("Sync from Google Sheets complete")
+	return nil
+}
+
+func syncTeamsFromSheets() error {
+	// Read Teams sheet - expecting columns: Team Name, Player 1-5, Sub 1-4
+	resp, err := sheetsService.Spreadsheets.Values.Get(googleSheetsID, "Teams!A:J").Do()
+	if err != nil {
+		return fmt.Errorf("failed to read Teams sheet: %v", err)
+	}
+
+	if len(resp.Values) < 2 {
+		return fmt.Errorf("Teams sheet is empty or missing header")
+	}
+
+	// Skip header row
+	for i, row := range resp.Values[1:] {
+		if len(row) < 1 {
+			continue
+		}
+
+		teamName := strings.TrimSpace(fmt.Sprintf("%v", row[0]))
+		if teamName == "" {
+			continue
+		}
+
+		// Extract players (columns B-F, indices 1-5)
+		players := []string{}
+		for j := 1; j <= 5 && j < len(row); j++ {
+			if p := strings.TrimSpace(fmt.Sprintf("%v", row[j])); p != "" {
+				players = append(players, p)
+			}
+		}
+
+		// Extract subs (columns G-J, indices 6-9)
+		subs := []string{}
+		for j := 6; j <= 9 && j < len(row); j++ {
+			if s := strings.TrimSpace(fmt.Sprintf("%v", row[j])); s != "" {
+				subs = append(subs, s)
+			}
+		}
+
+		team := Team{
+			ID:      fmt.Sprintf("team-%d", i+1),
+			Name:    teamName,
+			Players: players,
+			Subs:    subs,
+		}
+
+		if err := saveTeam(team); err != nil {
+			log.Printf("Failed to save team %s: %v", teamName, err)
+		}
+	}
+
+	return nil
+}
+
+func syncScheduleFromSheets() error {
+	// Read Schedule sheet - expecting columns: Week, Lobby, Team 1-7
+	resp, err := sheetsService.Spreadsheets.Values.Get(googleSheetsID, "Schedule!A:I").Do()
+	if err != nil {
+		return fmt.Errorf("failed to read Schedule sheet: %v", err)
+	}
+
+	if len(resp.Values) < 2 {
+		return fmt.Errorf("Schedule sheet is empty or missing header")
+	}
+
+	// Group rows by week
+	weekLobbies := make(map[string][]Lobby)
+	weekNumbers := make(map[string]int)
+	weekNum := 0
+
+	for _, row := range resp.Values[1:] {
+		if len(row) < 2 {
+			continue
+		}
+
+		weekName := strings.TrimSpace(fmt.Sprintf("%v", row[0]))
+		lobbyName := strings.TrimSpace(fmt.Sprintf("%v", row[1]))
+
+		if weekName == "" || lobbyName == "" {
+			continue
+		}
+
+		// Track week number
+		if _, exists := weekNumbers[weekName]; !exists {
+			weekNum++
+			weekNumbers[weekName] = weekNum
+		}
+
+		// Extract teams in this lobby (columns C onwards)
+		teams := []string{}
+		for j := 2; j < len(row); j++ {
+			if t := strings.TrimSpace(fmt.Sprintf("%v", row[j])); t != "" {
+				teams = append(teams, t)
+			}
+		}
+
+		lobby := Lobby{
+			Name:  lobbyName,
+			Teams: teams,
+		}
+
+		weekLobbies[weekName] = append(weekLobbies[weekName], lobby)
+	}
+
+	// Save weeks
+	for weekName, lobbies := range weekLobbies {
+		weekID := strings.ToLower(strings.ReplaceAll(weekName, " ", "-"))
+		week := Week{
+			ID:      weekID,
+			Number:  weekNumbers[weekName],
+			Name:    weekName,
+			Lobbies: lobbies,
+		}
+
+		if err := saveWeek(week); err != nil {
+			log.Printf("Failed to save week %s: %v", weekName, err)
+		}
+	}
+
+	return nil
+}
+
+// Auto-sync goroutine
+func startAutoSync(interval time.Duration) {
+	if sheetsService == nil {
+		log.Println("Auto-sync disabled (Sheets not configured)")
+		return
+	}
+
+	go func() {
+		// Initial sync after startup
+		time.Sleep(10 * time.Second)
+		syncFromSheets()
+
+		ticker := time.NewTicker(interval)
+		for range ticker.C {
+			syncFromSheets()
+		}
+	}()
+
+	log.Printf("Auto-sync enabled (every %v)", interval)
 }
 
 // ==================== TEAM FUNCTIONS ====================
@@ -1147,6 +1337,40 @@ func handleSetAdmin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
+func handleSync(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	if sheetsService == nil {
+		writeError(w, http.StatusServiceUnavailable, "Google Sheets not configured")
+		return
+	}
+
+	if err := syncFromSheets(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"syncedAt": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func handleGetSyncStatus(w http.ResponseWriter, r *http.Request) {
+	lastSync, _ := getSetting("last_sync")
+	configured := sheetsService != nil && googleSheetsID != ""
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"configured": configured,
+		"lastSync":   lastSync,
+		"sheetId":    googleSheetsID,
+	})
+}
+
 // ==================== HELPERS ====================
 
 func removeFromSlice(slice []string, item string) []string {
@@ -1202,6 +1426,14 @@ func main() {
 	// Get base URL
 	baseURL = os.Getenv("BASE_URL")
 
+	// Initialize Google Sheets
+	if err := initSheetsService(); err != nil {
+		log.Printf("Warning: Google Sheets initialization failed: %v", err)
+	}
+
+	// Start auto-sync (every 15 minutes)
+	startAutoSync(15 * time.Minute)
+
 	// Set up router
 	r := mux.NewRouter()
 
@@ -1227,6 +1459,8 @@ func main() {
 	r.HandleFunc("/api/admin/import-teams", handleImportTeams).Methods("POST")
 	r.HandleFunc("/api/admin/import-weeks", handleImportWeeks).Methods("POST")
 	r.HandleFunc("/api/admin/set-admin", handleSetAdmin).Methods("POST")
+	r.HandleFunc("/api/admin/sync", handleSync).Methods("POST")
+	r.HandleFunc("/api/admin/sync-status", handleGetSyncStatus).Methods("GET")
 
 	// Static files
 	r.PathPrefix("/").HandlerFunc(serveStatic)

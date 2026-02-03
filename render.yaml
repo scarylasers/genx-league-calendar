@@ -25,3 +25,7 @@ services:
         generateValue: true
       - key: BASE_URL
         value: https://genx-league-calendar.onrender.com
+      - key: GOOGLE_SHEETS_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false

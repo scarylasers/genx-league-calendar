@@ -1283,6 +1283,41 @@ body {
     margin-bottom: 15px;
 }
 
+/* Sync Status */
+.sync-status-box {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+.sync-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.sync-ok {
+    color: var(--accent);
+    font-weight: 500;
+}
+
+.sync-warning {
+    color: var(--warning);
+    font-weight: 500;
+}
+
+.sync-error {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+.sync-pending {
+    color: var(--primary-light);
+    font-weight: 500;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header {

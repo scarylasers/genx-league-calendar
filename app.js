@@ -662,12 +662,71 @@ async function announceWeek(weekId) {
 
 // ==================== ADMIN FUNCTIONS ====================
 
+async function loadSyncStatus() {
+    try {
+        const res = await fetch('/api/admin/sync-status', { credentials: 'include' });
+        if (res.ok) {
+            const data = await res.json();
+            const statusText = document.getElementById('syncStatusText');
+            const sheetLink = document.getElementById('sheetLink');
+
+            if (data.configured) {
+                if (data.lastSync) {
+                    const lastSync = new Date(data.lastSync);
+                    statusText.innerHTML = `<span class="sync-ok">✓ Connected</span> Last sync: ${lastSync.toLocaleString()}`;
+                } else {
+                    statusText.innerHTML = '<span class="sync-ok">✓ Connected</span> Not synced yet';
+                }
+                if (data.sheetId) {
+                    sheetLink.href = `https://docs.google.com/spreadsheets/d/${data.sheetId}`;
+                    sheetLink.style.display = 'inline-block';
+                }
+            } else {
+                statusText.innerHTML = '<span class="sync-warning">⚠ Not configured</span> Set GOOGLE_SHEETS_ID and GOOGLE_SERVICE_ACCOUNT_JSON';
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load sync status:', err);
+    }
+}
+
+async function triggerSync() {
+    const statusText = document.getElementById('syncStatusText');
+    statusText.innerHTML = '<span class="sync-pending">⏳ Syncing...</span>';
+
+    try {
+        const res = await fetch('/api/admin/sync', {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            statusText.innerHTML = `<span class="sync-ok">✓ Synced!</span> ${new Date(data.syncedAt).toLocaleString()}`;
+            // Refresh data
+            await fetchTeams();
+            await fetchWeeks();
+            renderWeeksList();
+            renderTeamRoster();
+            renderAdminWeeksList();
+        } else {
+            const err = await res.json();
+            statusText.innerHTML = `<span class="sync-error">✗ Failed:</span> ${err.error}`;
+        }
+    } catch (err) {
+        statusText.innerHTML = '<span class="sync-error">✗ Sync failed</span>';
+    }
+}
+
 function renderAdminWeeksList() {
     const container = document.getElementById('adminWeeksList');
     if (!container) return;
 
+    // Load sync status when admin tab is rendered
+    loadSyncStatus();
+
     if (weeks.length === 0) {
-        container.innerHTML = '<p class="no-data">No weeks imported yet.</p>';
+        container.innerHTML = '<p class="no-data">No weeks imported yet. Sync from Google Sheets or import manually.</p>';
         return;
     }
 
