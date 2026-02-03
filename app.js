@@ -29,6 +29,7 @@ async function init() {
     renderWeeksList();
     renderTeamRoster();
     renderSubPool();
+    populateSubSearchWeeks();
 
     // Handle Discord link with week parameter
     handleWeekLinkParam();
@@ -1563,6 +1564,71 @@ async function saveSubRules() {
     }
 }
 
+let currentSubSearchWeekId = null;
+let currentWeekAssignments = [];
+
+// Populate weeks dropdown for sub search
+function populateSubSearchWeeks() {
+    const select = document.getElementById('subSearchWeek');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- Select Week (optional) --</option>';
+    weeks.forEach(week => {
+        select.innerHTML += `<option value="${escapeHtml(week.id)}">${escapeHtml(week.name)}${week.date ? ` (${formatDate(week.date)})` : ''}</option>`;
+    });
+}
+
+// Called when week selection changes
+async function updateSubSearchContext() {
+    const weekId = document.getElementById('subSearchWeek')?.value;
+    currentSubSearchWeekId = weekId || null;
+
+    const assignmentsBox = document.getElementById('weekAssignments');
+    if (!weekId) {
+        if (assignmentsBox) assignmentsBox.style.display = 'none';
+        currentWeekAssignments = [];
+        return;
+    }
+
+    // Load assignments for this week
+    await loadWeekAssignments(weekId);
+}
+
+async function loadWeekAssignments(weekId) {
+    const assignmentsBox = document.getElementById('weekAssignments');
+    const assignmentsList = document.getElementById('assignmentsList');
+
+    try {
+        const res = await fetch(`/api/subs/assignments?weekId=${encodeURIComponent(weekId)}`, { credentials: 'include' });
+        if (res.ok) {
+            currentWeekAssignments = await res.json() || [];
+
+            if (currentWeekAssignments.length === 0) {
+                if (assignmentsBox) assignmentsBox.style.display = 'none';
+                return;
+            }
+
+            if (assignmentsBox) assignmentsBox.style.display = 'block';
+            if (assignmentsList) {
+                assignmentsList.innerHTML = currentWeekAssignments.map(a => `
+                    <div class="assignment-item">
+                        <span class="assignment-sub">${escapeHtml(a.subName || a.subId)}</span>
+                        <span class="assignment-arrow">→</span>
+                        <span class="assignment-team">${escapeHtml(a.teamName || a.teamId)}</span>
+                        ${(currentUser?.isAdmin || (currentUser?.teamName === a.teamName)) ?
+                            `<button class="btn btn-small btn-danger" onclick="unassignSub('${a.subId}', '${weekId}', '${a.teamId}')">Remove</button>`
+                            : ''
+                        }
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load assignments:', err);
+        currentWeekAssignments = [];
+    }
+}
+
 async function findEligibleSubs() {
     const outgoingCR = parseInt(document.getElementById('outgoingCR').value);
     if (!outgoingCR && outgoingCR !== 0) {
@@ -1570,18 +1636,28 @@ async function findEligibleSubs() {
         return;
     }
 
+    const weekId = currentSubSearchWeekId;
+    let url = `/api/subs/eligible?cr=${outgoingCR}`;
+    if (weekId) {
+        url += `&weekId=${encodeURIComponent(weekId)}`;
+    }
+
     try {
-        const res = await fetch(`/api/subs/eligible?cr=${outgoingCR}`, { credentials: 'include' });
+        const res = await fetch(url, { credentials: 'include' });
         if (res.ok) {
             const data = await res.json();
             eligibleFilter = {
                 outgoingCR: data.outgoingCR,
+                weekId: weekId,
                 eligibleIds: data.eligible.map(s => s.id)
             };
 
             const statusEl = document.getElementById('eligibleStatus');
             if (statusEl) {
                 let statusText = `Found ${data.eligible.length} eligible subs for CR ${outgoingCR}`;
+                if (weekId) {
+                    statusText += ' (excluding already assigned)';
+                }
                 if (data.reason) {
                     statusText += ` — ${data.reason}`;
                 }
@@ -1605,6 +1681,85 @@ function clearEligibleFilter() {
     const statusEl = document.getElementById('eligibleStatus');
     if (statusEl) statusEl.textContent = '';
     renderSubPool();
+}
+
+async function assignSub(subId, subName) {
+    if (!currentUser?.teamName) {
+        alert('You must be linked to a team to assign subs');
+        return;
+    }
+
+    const weekId = currentSubSearchWeekId;
+    if (!weekId) {
+        alert('Please select a week first');
+        return;
+    }
+
+    const week = weeks.find(w => w.id === weekId);
+    const weekName = week ? week.name : weekId;
+
+    if (!confirm(`Assign ${subName} to ${currentUser.teamName} for ${weekName}?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/subs/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                subId: subId,
+                weekId: weekId,
+                teamId: currentUser.teamName
+            })
+        });
+
+        if (res.ok) {
+            alert(`${subName} has been assigned to your team for ${weekName}`);
+            await loadWeekAssignments(weekId);
+            // Refresh eligible subs to remove the newly assigned one
+            if (eligibleFilter) {
+                findEligibleSubs();
+            }
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to assign sub');
+        }
+    } catch (err) {
+        console.error('Assign sub error:', err);
+        alert('Failed to assign sub');
+    }
+}
+
+async function unassignSub(subId, weekId, teamId) {
+    if (!confirm('Remove this sub assignment?')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/subs/unassign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ subId, weekId, teamId })
+        });
+
+        if (res.ok) {
+            await loadWeekAssignments(weekId);
+            // Refresh eligible subs to include the unassigned sub
+            if (eligibleFilter) {
+                findEligibleSubs();
+            } else {
+                renderSubPool();
+            }
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to unassign sub');
+        }
+    } catch (err) {
+        console.error('Unassign sub error:', err);
+        alert('Failed to unassign sub');
+    }
 }
 
 // Update renderSubPool to handle eligible filter
@@ -1647,6 +1802,9 @@ renderSubPool = function() {
         return;
     }
 
+    // Check if user can assign subs (logged in, on a team, and week selected)
+    const canAssign = currentUser?.teamName && eligibleFilter?.weekId;
+
     container.innerHTML = filteredSubs.map(sub => `
         <div class="sub-card ${sub.available ? 'available' : 'unavailable'} ${mySub?.id === sub.id ? 'is-me' : ''} ${eligibleFilter ? 'eligible' : ''}">
             <div class="sub-info">
@@ -1662,6 +1820,13 @@ renderSubPool = function() {
                 </span>
             </div>
             ${sub.notes ? `<div class="sub-notes">${escapeHtml(sub.notes)}</div>` : ''}
+            ${canAssign && sub.available ? `
+                <div class="sub-actions">
+                    <button class="btn btn-small btn-primary" onclick="assignSub('${escapeHtml(sub.id)}', '${escapeHtml(sub.name)}')">
+                        Assign to My Team
+                    </button>
+                </div>
+            ` : ''}
         </div>
     `).join('');
 };

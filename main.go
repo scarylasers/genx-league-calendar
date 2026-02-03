@@ -208,6 +208,15 @@ func initDB() error {
 			name TEXT NOT NULL,
 			comp_rank INTEGER DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS sub_assignments (
+			id SERIAL PRIMARY KEY,
+			sub_id TEXT NOT NULL,
+			week_id TEXT NOT NULL,
+			team_id TEXT NOT NULL,
+			assigned_by TEXT,
+			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(sub_id, week_id)
+		)`,
 	}
 
 	for _, table := range tables {
@@ -665,6 +674,134 @@ func saveSub(s Sub) error {
 			name = $2, discord_id = $3, discord_name = $4, comp_rank = $5, available = $6, notes = $7, last_active = CURRENT_TIMESTAMP
 	`, s.ID, s.Name, s.DiscordID, s.DiscordName, s.CompRank, s.Available, s.Notes)
 	return err
+}
+
+// ==================== SUB ASSIGNMENT FUNCTIONS ====================
+
+type SubAssignment struct {
+	ID         int    `json:"id"`
+	SubID      string `json:"subId"`
+	SubName    string `json:"subName,omitempty"`
+	WeekID     string `json:"weekId"`
+	TeamID     string `json:"teamId"`
+	TeamName   string `json:"teamName,omitempty"`
+	AssignedBy string `json:"assignedBy,omitempty"`
+	AssignedAt string `json:"assignedAt,omitempty"`
+}
+
+// getSubAssignmentsForWeek returns all sub assignments for a specific week
+func getSubAssignmentsForWeek(weekID string) ([]SubAssignment, error) {
+	rows, err := db.Query(`
+		SELECT sa.id, sa.sub_id, sa.week_id, sa.team_id, sa.assigned_by, sa.assigned_at,
+			   s.name as sub_name, t.name as team_name
+		FROM sub_assignments sa
+		LEFT JOIN subs s ON sa.sub_id = s.id
+		LEFT JOIN teams t ON sa.team_id = t.id OR sa.team_id = t.name
+		WHERE sa.week_id = $1
+		ORDER BY sa.assigned_at DESC
+	`, weekID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var assignments []SubAssignment
+	for rows.Next() {
+		var a SubAssignment
+		var assignedBy, assignedAt, subName, teamName sql.NullString
+		if err := rows.Scan(&a.ID, &a.SubID, &a.WeekID, &a.TeamID, &assignedBy, &assignedAt, &subName, &teamName); err != nil {
+			continue
+		}
+		a.AssignedBy = assignedBy.String
+		a.AssignedAt = assignedAt.String
+		a.SubName = subName.String
+		a.TeamName = teamName.String
+		assignments = append(assignments, a)
+	}
+	return assignments, nil
+}
+
+// getSubAssignmentsForTeamWeek returns sub assignments for a specific team in a specific week
+func getSubAssignmentsForTeamWeek(teamID, weekID string) ([]SubAssignment, error) {
+	rows, err := db.Query(`
+		SELECT sa.id, sa.sub_id, sa.week_id, sa.team_id, sa.assigned_by, sa.assigned_at,
+			   s.name as sub_name
+		FROM sub_assignments sa
+		LEFT JOIN subs s ON sa.sub_id = s.id
+		WHERE (sa.team_id = $1 OR sa.team_id = $2) AND sa.week_id = $3
+		ORDER BY sa.assigned_at DESC
+	`, teamID, teamID, weekID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var assignments []SubAssignment
+	for rows.Next() {
+		var a SubAssignment
+		var assignedBy, assignedAt, subName sql.NullString
+		if err := rows.Scan(&a.ID, &a.SubID, &a.WeekID, &a.TeamID, &assignedBy, &assignedAt, &subName); err != nil {
+			continue
+		}
+		a.AssignedBy = assignedBy.String
+		a.AssignedAt = assignedAt.String
+		a.SubName = subName.String
+		assignments = append(assignments, a)
+	}
+	return assignments, nil
+}
+
+// isSubAssignedToWeek checks if a sub is already assigned to any team for a specific week
+func isSubAssignedToWeek(subID, weekID string) (bool, string) {
+	var teamID string
+	err := db.QueryRow(`
+		SELECT team_id FROM sub_assignments WHERE sub_id = $1 AND week_id = $2
+	`, subID, weekID).Scan(&teamID)
+	if err == sql.ErrNoRows {
+		return false, ""
+	}
+	if err != nil {
+		return false, ""
+	}
+	return true, teamID
+}
+
+// assignSubToTeam assigns a sub to a team for a specific week
+func assignSubToTeam(subID, weekID, teamID, assignedBy string) error {
+	_, err := db.Exec(`
+		INSERT INTO sub_assignments (sub_id, week_id, team_id, assigned_by)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (sub_id, week_id) DO UPDATE SET
+			team_id = $3, assigned_by = $4, assigned_at = CURRENT_TIMESTAMP
+	`, subID, weekID, teamID, assignedBy)
+	return err
+}
+
+// unassignSubFromTeam removes a sub assignment
+func unassignSubFromTeam(subID, weekID, teamID string) error {
+	_, err := db.Exec(`
+		DELETE FROM sub_assignments WHERE sub_id = $1 AND week_id = $2 AND team_id = $3
+	`, subID, weekID, teamID)
+	return err
+}
+
+// getAssignedSubIDsForWeek returns a set of sub IDs that are assigned to any team in a specific week
+func getAssignedSubIDsForWeek(weekID string) (map[string]bool, error) {
+	rows, err := db.Query("SELECT sub_id FROM sub_assignments WHERE week_id = $1", weekID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	assigned := make(map[string]bool)
+	for rows.Next() {
+		var subID string
+		if err := rows.Scan(&subID); err != nil {
+			continue
+		}
+		assigned[subID] = true
+	}
+	return assigned, nil
 }
 
 // ==================== TIER FUNCTIONS ====================
@@ -1619,6 +1756,12 @@ func handleRegisterAsSub(w http.ResponseWriter, r *http.Request) {
 // isPlayerOnTeam checks if a player name is on any team roster (players or subs)
 // Returns the team name if found, empty string if not
 func isPlayerOnTeam(playerName string) string {
+	return isPlayerOnTeamExcluding(playerName, "")
+}
+
+// isPlayerOnTeamExcluding checks if a player is on any team roster, excluding a specific team
+// This is used when updating a team so its own players don't count as duplicates
+func isPlayerOnTeamExcluding(playerName string, excludeTeamID string) string {
 	teams, err := getAllTeams()
 	if err != nil {
 		return ""
@@ -1626,6 +1769,10 @@ func isPlayerOnTeam(playerName string) string {
 
 	playerNameLower := strings.ToLower(playerName)
 	for _, team := range teams {
+		// Skip the excluded team
+		if excludeTeamID != "" && (team.ID == excludeTeamID || team.Name == excludeTeamID) {
+			continue
+		}
 		// Check main roster
 		for _, p := range team.Players {
 			if strings.ToLower(p) == playerNameLower {
@@ -1640,6 +1787,32 @@ func isPlayerOnTeam(playerName string) string {
 		}
 	}
 	return ""
+}
+
+// validateRosterPlayers checks if any players in the list are already on another team
+// Returns the first duplicate found with the team name, or empty strings if all clear
+func validateRosterPlayers(players []string, subs []string, excludeTeamID string) (string, string) {
+	// Check all players
+	for _, player := range players {
+		if player == "" {
+			continue
+		}
+		existingTeam := isPlayerOnTeamExcluding(player, excludeTeamID)
+		if existingTeam != "" {
+			return player, existingTeam
+		}
+	}
+	// Check all subs
+	for _, sub := range subs {
+		if sub == "" {
+			continue
+		}
+		existingTeam := isPlayerOnTeamExcluding(sub, excludeTeamID)
+		if existingTeam != "" {
+			return sub, existingTeam
+		}
+	}
+	return "", ""
 }
 
 func handleUpdateSubAvailability(w http.ResponseWriter, r *http.Request) {
@@ -1985,6 +2158,7 @@ func handleSetSubRules(w http.ResponseWriter, r *http.Request) {
 func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
 	outgoingCRStr := r.URL.Query().Get("cr")
 	outgoingCR, _ := strconv.Atoi(outgoingCRStr)
+	weekID := r.URL.Query().Get("weekId")
 
 	// Get tiers
 	tiers, _ := getAllTiers()
@@ -2008,6 +2182,12 @@ func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get subs already assigned to this week (if weekId provided)
+	var assignedSubIDs map[string]bool
+	if weekID != "" {
+		assignedSubIDs, _ = getAssignedSubIDsForWeek(weekID)
+	}
+
 	// Find which tier the outgoing player is in
 	outgoingTier := getTierForRank(outgoingCR, tiers)
 
@@ -2015,6 +2195,11 @@ func handleGetEligibleSubs(w http.ResponseWriter, r *http.Request) {
 	eligible := []Sub{}
 	for _, sub := range allSubs {
 		if !sub.Available {
+			continue
+		}
+
+		// Skip subs already assigned to another team this week
+		if assignedSubIDs != nil && assignedSubIDs[sub.ID] {
 			continue
 		}
 
@@ -2068,6 +2253,150 @@ func isSubEligible(subCR, outgoingCR int, outgoingTier *Tier, tiers []Tier, maxO
 	return subCR <= outgoingCR+maxOverage
 }
 
+// ==================== SUB ASSIGNMENT HANDLERS ====================
+
+// handleAssignSub assigns a sub to a team for a specific week
+func handleAssignSub(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Login required")
+		return
+	}
+
+	// Must be team manager or admin
+	if !session.IsAdmin && !session.IsManager {
+		writeError(w, http.StatusForbidden, "Team manager or admin access required")
+		return
+	}
+
+	var body struct {
+		SubID  string `json:"subId"`
+		WeekID string `json:"weekId"`
+		TeamID string `json:"teamId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	if body.SubID == "" || body.WeekID == "" || body.TeamID == "" {
+		writeError(w, http.StatusBadRequest, "subId, weekId, and teamId are required")
+		return
+	}
+
+	// If not admin, must be assigning to their own team
+	if !session.IsAdmin && session.TeamID != body.TeamID {
+		writeError(w, http.StatusForbidden, "You can only assign subs to your own team")
+		return
+	}
+
+	// Check if sub exists
+	sub, err := getSubByID(body.SubID)
+	if err != nil || sub == nil {
+		writeError(w, http.StatusNotFound, "Sub not found")
+		return
+	}
+
+	// Check if sub is available
+	if !sub.Available {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("%s is currently marked as unavailable", sub.Name))
+		return
+	}
+
+	// Check if sub is already assigned to another team this week
+	alreadyAssigned, existingTeamID := isSubAssignedToWeek(body.SubID, body.WeekID)
+	if alreadyAssigned && existingTeamID != body.TeamID {
+		// Get team name for better error message
+		existingTeam, _ := getTeamByID(existingTeamID)
+		teamName := existingTeamID
+		if existingTeam != nil {
+			teamName = existingTeam.Name
+		}
+		writeError(w, http.StatusConflict, fmt.Sprintf("%s is already assigned to %s for this week", sub.Name, teamName))
+		return
+	}
+
+	// Assign the sub
+	if err := assignSubToTeam(body.SubID, body.WeekID, body.TeamID, session.DiscordID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"subName": sub.Name,
+		"weekId":  body.WeekID,
+		"teamId":  body.TeamID,
+	})
+}
+
+// handleUnassignSub removes a sub assignment
+func handleUnassignSub(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil {
+		writeError(w, http.StatusUnauthorized, "Login required")
+		return
+	}
+
+	// Must be team manager or admin
+	if !session.IsAdmin && !session.IsManager {
+		writeError(w, http.StatusForbidden, "Team manager or admin access required")
+		return
+	}
+
+	var body struct {
+		SubID  string `json:"subId"`
+		WeekID string `json:"weekId"`
+		TeamID string `json:"teamId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// If not admin, must be unassigning from their own team
+	if !session.IsAdmin && session.TeamID != body.TeamID {
+		writeError(w, http.StatusForbidden, "You can only unassign subs from your own team")
+		return
+	}
+
+	if err := unassignSubFromTeam(body.SubID, body.WeekID, body.TeamID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// handleGetSubAssignments returns sub assignments for a week or team
+func handleGetSubAssignments(w http.ResponseWriter, r *http.Request) {
+	weekID := r.URL.Query().Get("weekId")
+	teamID := r.URL.Query().Get("teamId")
+
+	var assignments []SubAssignment
+	var err error
+
+	if weekID != "" && teamID != "" {
+		assignments, err = getSubAssignmentsForTeamWeek(teamID, weekID)
+	} else if weekID != "" {
+		assignments, err = getSubAssignmentsForWeek(weekID)
+	} else {
+		writeError(w, http.StatusBadRequest, "weekId is required")
+		return
+	}
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if assignments == nil {
+		assignments = []SubAssignment{}
+	}
+
+	writeJSON(w, http.StatusOK, assignments)
+}
+
 // ==================== ADMIN HANDLERS ====================
 
 // Team management
@@ -2113,6 +2442,13 @@ func handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 		team.Subs = body.Subs
 	}
 
+	// Check for duplicate players across rosters (excluding this team)
+	duplicatePlayer, existingTeam := validateRosterPlayers(team.Players, team.Subs, teamID)
+	if duplicatePlayer != "" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Player '%s' is already on team '%s'", duplicatePlayer, existingTeam))
+		return
+	}
+
 	if err := saveTeam(*team); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2153,18 +2489,25 @@ func handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for duplicate players across rosters
+	if body.Players == nil {
+		body.Players = []string{}
+	}
+	if body.Subs == nil {
+		body.Subs = []string{}
+	}
+
+	duplicatePlayer, existingTeam := validateRosterPlayers(body.Players, body.Subs, "")
+	if duplicatePlayer != "" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Player '%s' is already on team '%s'", duplicatePlayer, existingTeam))
+		return
+	}
+
 	team := Team{
 		ID:      "team-" + strings.ToLower(strings.ReplaceAll(body.Name, " ", "-")),
 		Name:    body.Name,
 		Players: body.Players,
 		Subs:    body.Subs,
-	}
-
-	if team.Players == nil {
-		team.Players = []string{}
-	}
-	if team.Subs == nil {
-		team.Subs = []string{}
 	}
 
 	if err := saveTeam(team); err != nil {
@@ -3089,6 +3432,9 @@ func main() {
 	r.HandleFunc("/api/admin/sub-rules", handleGetSubRules).Methods("GET")
 	r.HandleFunc("/api/admin/sub-rules", handleSetSubRules).Methods("POST")
 	r.HandleFunc("/api/subs/eligible", handleGetEligibleSubs).Methods("GET")
+	r.HandleFunc("/api/subs/assignments", handleGetSubAssignments).Methods("GET")
+	r.HandleFunc("/api/subs/assign", handleAssignSub).Methods("POST")
+	r.HandleFunc("/api/subs/unassign", handleUnassignSub).Methods("POST")
 
 	// Registered players routes
 	r.HandleFunc("/api/players", handleGetRegisteredPlayers).Methods("GET")

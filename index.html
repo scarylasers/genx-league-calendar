@@ -105,11 +105,18 @@
                 <h4>Find Eligible Subs</h4>
                 <p>Enter the outgoing player's Comp Rank to see who can sub in:</p>
                 <div class="eligible-search">
+                    <select id="subSearchWeek" onchange="updateSubSearchContext()">
+                        <option value="">-- Select Week --</option>
+                    </select>
                     <input type="number" id="outgoingCR" placeholder="Outgoing player's CR" min="0">
                     <button class="btn btn-primary" onclick="findEligibleSubs()">Find Subs</button>
                     <button class="btn btn-secondary" onclick="clearEligibleFilter()">Show All</button>
                 </div>
                 <p id="eligibleStatus" class="eligible-status"></p>
+                <div id="weekAssignments" class="week-assignments" style="display: none;">
+                    <h5>Subs Assigned This Week</h5>
+                    <div id="assignmentsList"></div>
+                </div>
             </div>
 
             <div id="subPoolList" class="sub-pool-list">
