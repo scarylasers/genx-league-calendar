@@ -2548,6 +2548,54 @@ func handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleDeleteAllTeams(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	// Get count before deleting
+	teams, _ := getAllTeams()
+	count := len(teams)
+
+	// Delete all teams
+	_, err := db.Exec("DELETE FROM teams")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"deleted": count,
+	})
+}
+
+func handleDeleteAllWeeks(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	// Get count before deleting
+	weeks, _ := getAllWeeks()
+	count := len(weeks)
+
+	// Delete all weeks
+	_, err := db.Exec("DELETE FROM weeks")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"deleted": count,
+	})
+}
+
 func handleImportTeams(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
 	if session == nil || !session.IsAdmin {
@@ -3447,6 +3495,8 @@ func main() {
 	r.HandleFunc("/api/admin/teams", handleCreateTeam).Methods("POST")
 	r.HandleFunc("/api/admin/teams/{teamId}", handleUpdateTeam).Methods("PUT")
 	r.HandleFunc("/api/admin/teams/{teamId}", handleDeleteTeam).Methods("DELETE")
+	r.HandleFunc("/api/admin/teams-all", handleDeleteAllTeams).Methods("DELETE")
+	r.HandleFunc("/api/admin/weeks-all", handleDeleteAllWeeks).Methods("DELETE")
 	r.HandleFunc("/api/admin/import-teams", handleImportTeams).Methods("POST")
 	r.HandleFunc("/api/admin/import-weeks", handleImportWeeks).Methods("POST")
 	r.HandleFunc("/api/admin/sync", handleSync).Methods("POST")

@@ -264,6 +264,9 @@
 
             <div class="admin-section">
                 <h3>All Weeks</h3>
+                <div class="admin-buttons">
+                    <button class="btn btn-danger" onclick="deleteAllWeeks()">Delete All Weeks</button>
+                </div>
                 <div id="adminWeeksList" class="admin-weeks-list">
                     <!-- Admin weeks list -->
                 </div>
@@ -281,10 +284,38 @@
             <div class="admin-section">
                 <h3>Team Management</h3>
                 <p>Edit team names, rosters, and substitutes.</p>
-                <button class="btn btn-primary" onclick="showCreateTeamModal()">+ Create New Team</button>
+                <div class="admin-buttons">
+                    <button class="btn btn-primary" onclick="showCreateTeamModal()">+ Create New Team</button>
+                    <button class="btn btn-danger" onclick="deleteAllTeams()">Delete All Teams</button>
+                </div>
                 <div id="adminTeamsList" class="admin-teams-list">
                     <!-- Teams list populated dynamically -->
                 </div>
+            </div>
+
+            <div class="admin-section">
+                <h3>File Upload Import</h3>
+                <p>Upload CSV or Excel files to import data. This is more reliable than copy-paste.</p>
+
+                <div class="file-import-row">
+                    <label>Import Teams:</label>
+                    <input type="file" id="teamsFileInput" accept=".csv,.xlsx,.xls" onchange="handleTeamsFileUpload(event)">
+                    <small>Columns: Team Name, Player 1, Player 2, Player 3, Player 4, Player 5, Sub 1, Sub 2, Sub 3, Sub 4</small>
+                </div>
+
+                <div class="file-import-row">
+                    <label>Import Schedule:</label>
+                    <input type="file" id="scheduleFileInput" accept=".csv,.xlsx,.xls" onchange="handleScheduleFileUpload(event)">
+                    <small>Columns: Week, Lobby, Team 1, Team 2, Team 3, ...</small>
+                </div>
+
+                <div class="file-import-row">
+                    <label>Import Registered Players:</label>
+                    <input type="file" id="playersFileInput" accept=".csv,.xlsx,.xls" onchange="handlePlayersFileUpload(event)">
+                    <small>Columns: Name, CR (or stat-bot format: "(CR)    Name")</small>
+                </div>
+
+                <div id="fileImportStatus" class="import-status"></div>
             </div>
         </section>
 

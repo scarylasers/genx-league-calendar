@@ -2000,6 +2000,340 @@ async function toggleUserAdmin(discordId, makeAdmin) {
 
 let editingTeamId = null;
 
+// Delete all teams
+async function deleteAllTeams() {
+    if (!confirm('Are you sure you want to delete ALL teams? This cannot be undone!')) {
+        return;
+    }
+    if (!confirm('This will delete all team data. Type "DELETE" to confirm.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/teams-all', {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            alert(`Deleted ${result.deleted} teams`);
+            await fetchTeams();
+            renderAdminTeamsList();
+            renderTeamRoster();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to delete teams');
+        }
+    } catch (err) {
+        console.error('Delete all teams error:', err);
+        alert('Failed to delete teams');
+    }
+}
+
+// Delete all weeks
+async function deleteAllWeeks() {
+    if (!confirm('Are you sure you want to delete ALL weeks/schedule? This cannot be undone!')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/admin/weeks-all', {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            alert(`Deleted ${result.deleted} weeks`);
+            await fetchWeeks();
+            renderWeeksList();
+            renderAdminWeeksList();
+            populateSubSearchWeeks();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to delete weeks');
+        }
+    } catch (err) {
+        console.error('Delete all weeks error:', err);
+        alert('Failed to delete weeks');
+    }
+}
+
+// ==================== FILE UPLOAD IMPORT ====================
+
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if ((char === ',' || char === '\t') && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current.trim());
+    return result;
+}
+
+function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    return lines.map(line => parseCSVLine(line)).filter(row => row.length > 0 && row[0] !== '');
+}
+
+async function handleTeamsFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('fileImportStatus');
+    statusEl.innerHTML = '<span class="sync-pending">Reading file...</span>';
+
+    try {
+        const text = await file.text();
+        const rows = parseCSV(text);
+
+        if (rows.length === 0) {
+            statusEl.innerHTML = '<span class="sync-error">No data found in file</span>';
+            return;
+        }
+
+        // Skip header row if it looks like a header
+        let dataRows = rows;
+        const firstRow = rows[0];
+        if (firstRow[0]?.toLowerCase().includes('team') || firstRow[0]?.toLowerCase().includes('name')) {
+            dataRows = rows.slice(1);
+        }
+
+        // Convert to teams format
+        const teamsData = dataRows.map(row => {
+            const teamName = row[0];
+            if (!teamName) return null;
+
+            // Get all non-empty values after team name for players/subs
+            const allMembers = [];
+            for (let i = 1; i < row.length; i++) {
+                if (row[i] && row[i].trim()) {
+                    allMembers.push(row[i].trim());
+                }
+            }
+
+            // First 5 are players, rest are subs
+            const players = allMembers.slice(0, 5);
+            const subs = allMembers.slice(5);
+
+            return {
+                name: teamName,
+                players: players,
+                subs: subs
+            };
+        }).filter(t => t !== null);
+
+        if (teamsData.length === 0) {
+            statusEl.innerHTML = '<span class="sync-error">Could not parse any teams from file</span>';
+            return;
+        }
+
+        statusEl.innerHTML = `<span class="sync-pending">Importing ${teamsData.length} teams...</span>`;
+
+        // Send to server
+        const res = await fetch('/api/admin/import-teams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(teamsData)
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            statusEl.innerHTML = `<span class="sync-ok">✓ Imported ${result.count} teams!</span>`;
+            await fetchTeams();
+            renderTeamRoster();
+            renderAdminTeamsList();
+        } else {
+            const err = await res.json();
+            statusEl.innerHTML = `<span class="sync-error">✗ ${err.error || 'Import failed'}</span>`;
+        }
+    } catch (err) {
+        console.error('File upload error:', err);
+        statusEl.innerHTML = '<span class="sync-error">✗ Failed to read file</span>';
+    }
+
+    // Clear the input
+    event.target.value = '';
+}
+
+async function handleScheduleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('fileImportStatus');
+    statusEl.innerHTML = '<span class="sync-pending">Reading file...</span>';
+
+    try {
+        const text = await file.text();
+        const rows = parseCSV(text);
+
+        if (rows.length === 0) {
+            statusEl.innerHTML = '<span class="sync-error">No data found in file</span>';
+            return;
+        }
+
+        // Skip header row if it looks like a header
+        let dataRows = rows;
+        const firstRow = rows[0];
+        if (firstRow[0]?.toLowerCase().includes('week') && firstRow[1]?.toLowerCase().includes('lobby')) {
+            dataRows = rows.slice(1);
+        }
+
+        // Group by week
+        const weekMap = new Map();
+        dataRows.forEach(row => {
+            const weekName = row[0];
+            const lobbyName = row[1];
+            if (!weekName || !lobbyName) return;
+
+            const teams = [];
+            for (let i = 2; i < row.length; i++) {
+                if (row[i] && row[i].trim()) teams.push(row[i].trim());
+            }
+
+            if (!weekMap.has(weekName)) {
+                weekMap.set(weekName, {
+                    id: weekName.toLowerCase().replace(/\s+/g, '-'),
+                    name: weekName,
+                    number: weekMap.size + 1,
+                    lobbies: []
+                });
+            }
+
+            weekMap.get(weekName).lobbies.push({
+                name: lobbyName,
+                teams: teams
+            });
+        });
+
+        const weeksData = Array.from(weekMap.values());
+
+        if (weeksData.length === 0) {
+            statusEl.innerHTML = '<span class="sync-error">Could not parse any weeks from file</span>';
+            return;
+        }
+
+        statusEl.innerHTML = `<span class="sync-pending">Importing ${weeksData.length} weeks...</span>`;
+
+        const res = await fetch('/api/admin/import-weeks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(weeksData)
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            statusEl.innerHTML = `<span class="sync-ok">✓ Imported ${result.count} weeks!</span>`;
+            await fetchWeeks();
+            renderWeeksList();
+            renderAdminWeeksList();
+            populateSubSearchWeeks();
+        } else {
+            const err = await res.json();
+            statusEl.innerHTML = `<span class="sync-error">✗ ${err.error || 'Import failed'}</span>`;
+        }
+    } catch (err) {
+        console.error('File upload error:', err);
+        statusEl.innerHTML = '<span class="sync-error">✗ Failed to read file</span>';
+    }
+
+    event.target.value = '';
+}
+
+async function handlePlayersFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('fileImportStatus');
+    statusEl.innerHTML = '<span class="sync-pending">Reading file...</span>';
+
+    try {
+        const text = await file.text();
+
+        // Try to detect format - stat-bot format "(CR)    Name" or CSV "Name,CR"
+        let playersData = [];
+
+        // Check if it's stat-bot format
+        const statBotRegex = /\((\d+)\)\s+(.+)/;
+        const lines = text.trim().split(/\r?\n/);
+
+        if (lines.some(line => statBotRegex.test(line))) {
+            // Stat-bot format
+            lines.forEach(line => {
+                const match = line.match(statBotRegex);
+                if (match) {
+                    playersData.push({
+                        name: match[2].trim(),
+                        compRank: parseInt(match[1])
+                    });
+                }
+            });
+        } else {
+            // Try CSV format
+            const rows = parseCSV(text);
+
+            // Skip header if present
+            let dataRows = rows;
+            if (rows[0]?.[0]?.toLowerCase().includes('name') || rows[0]?.[0]?.toLowerCase().includes('player')) {
+                dataRows = rows.slice(1);
+            }
+
+            dataRows.forEach(row => {
+                if (row[0]) {
+                    const name = row[0].trim();
+                    const cr = parseInt(row[1]) || 0;
+                    playersData.push({ name, compRank: cr });
+                }
+            });
+        }
+
+        if (playersData.length === 0) {
+            statusEl.innerHTML = '<span class="sync-error">Could not parse any players from file</span>';
+            return;
+        }
+
+        statusEl.innerHTML = `<span class="sync-pending">Importing ${playersData.length} players...</span>`;
+
+        // Convert to the format expected by the API
+        const importText = playersData.map(p => `(${p.compRank})    ${p.name}`).join('\n');
+
+        const res = await fetch('/api/admin/import-players', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ data: importText, replace: false })
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            statusEl.innerHTML = `<span class="sync-ok">✓ Imported ${result.imported} players!</span>`;
+            await fetchRegisteredPlayers();
+            renderRegisteredPlayersList();
+        } else {
+            const err = await res.json();
+            statusEl.innerHTML = `<span class="sync-error">✗ ${err.error || 'Import failed'}</span>`;
+        }
+    } catch (err) {
+        console.error('File upload error:', err);
+        statusEl.innerHTML = '<span class="sync-error">✗ Failed to read file</span>';
+    }
+
+    event.target.value = '';
+}
+
 function renderAdminTeamsList() {
     const container = document.getElementById('adminTeamsList');
     if (!container) return;
