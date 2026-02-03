@@ -1318,6 +1318,26 @@ body {
     font-weight: 500;
 }
 
+/* Import Hints */
+.import-hint {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    background: var(--bg-dark);
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 15px;
+}
+
+.import-note {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 15px;
+}
+
+.import-note a {
+    color: var(--primary-light);
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header {

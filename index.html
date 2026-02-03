@@ -130,24 +130,16 @@
             <h2>League Admin</h2>
 
             <div class="admin-section">
-                <h3>Google Sheets Sync</h3>
-                <p>Data syncs automatically from the spreadsheet every 15 minutes.</p>
-                <div id="syncStatus" class="sync-status-box">
-                    <span id="syncStatusText">Checking...</span>
-                </div>
-                <div class="sync-actions">
-                    <button class="btn btn-primary" onclick="triggerSync()">Sync Now</button>
-                    <a id="sheetLink" href="#" target="_blank" class="btn btn-secondary" style="display: none;">Open Spreadsheet</a>
-                </div>
-            </div>
-
-            <div class="admin-section">
-                <h3>Manual Import</h3>
-                <p>Or manually import JSON data:</p>
+                <h3>Import from Spreadsheet</h3>
+                <p>Copy data from the Google Sheets and paste it here to update teams and schedule.</p>
                 <div class="import-buttons">
-                    <button class="btn btn-secondary" onclick="showImportTeamsModal()">Import Teams JSON</button>
-                    <button class="btn btn-secondary" onclick="showImportWeeksModal()">Import Schedule JSON</button>
+                    <button class="btn btn-primary" onclick="showImportTeamsModal()">Import Teams</button>
+                    <button class="btn btn-primary" onclick="showImportWeeksModal()">Import Schedule</button>
                 </div>
+                <p class="import-note">
+                    <a href="https://docs.google.com/spreadsheets/d/1oN2wM8-yHrWR9dch4U2Cn4M9nhp7qMC-p3Re5e4-B2A" target="_blank">Open Spreadsheet</a>
+                    → Select data → Copy → Paste into import
+                </p>
             </div>
 
             <div class="admin-section">
@@ -206,23 +198,34 @@
         <div id="importTeamsModal" class="modal">
             <div class="modal-content modal-large">
                 <h3>Import Teams</h3>
-                <p>Paste the teams data as JSON:</p>
-                <textarea id="teamsJson" rows="10" placeholder='[{"name": "Team Name", "players": ["P1", "P2", "P3", "P4", "P5"], "subs": ["S1", "S2"]}]'></textarea>
+                <p>Copy from the <strong>Teams</strong> tab in the spreadsheet (select all data rows, not the header) and paste below:</p>
+                <p class="import-hint">Expected columns: Team Name, Player 1, Player 2, Player 3, Player 4, Player 5, Sub 1, Sub 2, Sub 3, Sub 4</p>
+                <textarea id="teamsData" rows="12" placeholder="Paste spreadsheet data here...
+
+Example (tab-separated):
+BabyRuthless Deez Nuts	Player1	Player2	Player3	Player4	Player5	Sub1	Sub2	Sub3	Sub4
+Baggers and Taggers	Player1	Player2	..."></textarea>
                 <div class="modal-buttons">
-                    <button class="btn btn-primary" onclick="importTeams()">Import</button>
+                    <button class="btn btn-primary" onclick="importTeamsFromPaste()">Import Teams</button>
                     <button class="btn btn-secondary" onclick="closeImportTeamsModal()">Cancel</button>
                 </div>
             </div>
         </div>
 
-        <!-- Import Weeks Modal -->
+        <!-- Import Schedule Modal -->
         <div id="importWeeksModal" class="modal">
             <div class="modal-content modal-large">
                 <h3>Import Schedule</h3>
-                <p>Paste the weeks/schedule data as JSON:</p>
-                <textarea id="weeksJson" rows="10" placeholder='[{"id": "week-1", "number": 1, "name": "Week 1", "lobbies": [{"name": "Lobby 1", "teams": ["Team A", "Team B"]}]}]'></textarea>
+                <p>Copy from the <strong>Schedule</strong> tab in the spreadsheet and paste below:</p>
+                <p class="import-hint">Expected columns: Week, Lobby, Team 1, Team 2, Team 3, Team 4, Team 5, Team 6, Team 7</p>
+                <textarea id="scheduleData" rows="12" placeholder="Paste spreadsheet data here...
+
+Example (tab-separated):
+Week 1	Lobby 1	Team A	Team B	Team C	Team D	Team E	Team F	Team G
+Week 1	Lobby 2	Team H	Team I	Team J	Team K	Team L	Team M
+Week 2	Lobby 1	..."></textarea>
                 <div class="modal-buttons">
-                    <button class="btn btn-primary" onclick="importWeeks()">Import</button>
+                    <button class="btn btn-primary" onclick="importScheduleFromPaste()">Import Schedule</button>
                     <button class="btn btn-secondary" onclick="closeImportWeeksModal()">Cancel</button>
                 </div>
             </div>

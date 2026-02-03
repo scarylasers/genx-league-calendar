@@ -758,12 +758,61 @@ function closeImportWeeksModal() {
     document.getElementById('importWeeksModal').classList.remove('active');
 }
 
-async function importTeams() {
-    const jsonStr = document.getElementById('teamsJson').value.trim();
+// Parse pasted spreadsheet data (tab or comma separated)
+function parseSpreadsheetData(text) {
+    const lines = text.trim().split('\n');
+    return lines.map(line => {
+        // Try tab-separated first, then comma
+        if (line.includes('\t')) {
+            return line.split('\t').map(cell => cell.trim());
+        } else {
+            return line.split(',').map(cell => cell.trim());
+        }
+    }).filter(row => row.length > 0 && row[0] !== '');
+}
+
+async function importTeamsFromPaste() {
+    const text = document.getElementById('teamsData').value.trim();
+    if (!text) {
+        alert('Please paste the teams data');
+        return;
+    }
+
+    const rows = parseSpreadsheetData(text);
+    if (rows.length === 0) {
+        alert('No data found');
+        return;
+    }
+
+    // Convert to teams format
+    // Expected: Team Name, Player 1-5, Sub 1-4
+    const teamsData = rows.map((row, index) => {
+        const teamName = row[0];
+        if (!teamName) return null;
+
+        const players = [];
+        for (let i = 1; i <= 5 && i < row.length; i++) {
+            if (row[i]) players.push(row[i]);
+        }
+
+        const subs = [];
+        for (let i = 6; i <= 9 && i < row.length; i++) {
+            if (row[i]) subs.push(row[i]);
+        }
+
+        return {
+            name: teamName,
+            players: players,
+            subs: subs
+        };
+    }).filter(t => t !== null);
+
+    if (teamsData.length === 0) {
+        alert('Could not parse any teams from the data');
+        return;
+    }
 
     try {
-        const teamsData = JSON.parse(jsonStr);
-
         const res = await fetch('/api/admin/import-teams', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -777,21 +826,67 @@ async function importTeams() {
             closeImportTeamsModal();
             await fetchTeams();
             renderTeamRoster();
+            renderWeeksList();
         } else {
             const err = await res.json();
             alert(err.error || 'Failed to import');
         }
     } catch (err) {
-        alert('Invalid JSON format');
+        console.error('Import error:', err);
+        alert('Failed to import teams');
     }
 }
 
-async function importWeeks() {
-    const jsonStr = document.getElementById('weeksJson').value.trim();
+async function importScheduleFromPaste() {
+    const text = document.getElementById('scheduleData').value.trim();
+    if (!text) {
+        alert('Please paste the schedule data');
+        return;
+    }
+
+    const rows = parseSpreadsheetData(text);
+    if (rows.length === 0) {
+        alert('No data found');
+        return;
+    }
+
+    // Group by week
+    // Expected: Week, Lobby, Team 1, Team 2, ...
+    const weekMap = new Map();
+
+    rows.forEach(row => {
+        const weekName = row[0];
+        const lobbyName = row[1];
+        if (!weekName || !lobbyName) return;
+
+        const teams = [];
+        for (let i = 2; i < row.length; i++) {
+            if (row[i]) teams.push(row[i]);
+        }
+
+        if (!weekMap.has(weekName)) {
+            weekMap.set(weekName, {
+                id: weekName.toLowerCase().replace(/\s+/g, '-'),
+                name: weekName,
+                number: weekMap.size + 1,
+                lobbies: []
+            });
+        }
+
+        weekMap.get(weekName).lobbies.push({
+            name: lobbyName,
+            teams: teams
+        });
+    });
+
+    const weeksData = Array.from(weekMap.values());
+
+    if (weeksData.length === 0) {
+        alert('Could not parse any weeks from the data');
+        return;
+    }
 
     try {
-        const weeksData = JSON.parse(jsonStr);
-
         const res = await fetch('/api/admin/import-weeks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -811,7 +906,8 @@ async function importWeeks() {
             alert(err.error || 'Failed to import');
         }
     } catch (err) {
-        alert('Invalid JSON format');
+        console.error('Import error:', err);
+        alert('Failed to import schedule');
     }
 }
 
