@@ -130,16 +130,29 @@
             <h2>League Admin</h2>
 
             <div class="admin-section">
-                <h3>Import from Spreadsheet</h3>
-                <p>Copy data from the Google Sheets and paste it here to update teams and schedule.</p>
-                <div class="import-buttons">
-                    <button class="btn btn-primary" onclick="showImportTeamsModal()">Import Teams</button>
-                    <button class="btn btn-primary" onclick="showImportWeeksModal()">Import Schedule</button>
+                <h3>Import from Published Spreadsheet URL</h3>
+                <p>Paste the published Google Sheets URL to auto-import teams and schedule.</p>
+                <div class="form-row" style="max-width: 600px;">
+                    <label for="sheetUrl">Published Sheet URL:</label>
+                    <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pubhtml">
                 </div>
+                <div class="import-buttons">
+                    <button class="btn btn-primary" onclick="importFromURL()">Import from URL</button>
+                    <button class="btn btn-secondary" onclick="refreshFromURL()">Refresh Data</button>
+                </div>
+                <div id="importStatus" class="import-status"></div>
                 <p class="import-note">
-                    <a href="https://docs.google.com/spreadsheets/d/1oN2wM8-yHrWR9dch4U2Cn4M9nhp7qMC-p3Re5e4-B2A" target="_blank">Open Spreadsheet</a>
-                    → Select data → Copy → Paste into import
+                    Last sync: <span id="lastSyncTime">Never</span>
                 </p>
+            </div>
+
+            <div class="admin-section">
+                <h3>Manual Import (Paste from Spreadsheet)</h3>
+                <p>Alternatively, copy data from the spreadsheet and paste it here.</p>
+                <div class="import-buttons">
+                    <button class="btn btn-secondary" onclick="showImportTeamsModal()">Import Teams</button>
+                    <button class="btn btn-secondary" onclick="showImportWeeksModal()">Import Schedule</button>
+                </div>
             </div>
 
             <div class="admin-section">

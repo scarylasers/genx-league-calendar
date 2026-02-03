@@ -1338,6 +1338,40 @@ body {
     color: var(--primary-light);
 }
 
+.import-status {
+    margin-top: 15px;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+.import-status.importing {
+    background: rgba(79, 70, 229, 0.2);
+    border: 1px solid var(--primary);
+}
+
+.import-status.success {
+    background: rgba(34, 197, 94, 0.2);
+    border: 1px solid var(--accent);
+}
+
+.import-status.error {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid var(--danger);
+}
+
+.import-status .sync-pending {
+    color: var(--primary-light);
+}
+
+.import-status .sync-ok {
+    color: var(--accent);
+}
+
+.import-status .sync-error {
+    color: var(--danger);
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header {

@@ -7,17 +7,21 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"golang.org/x/net/html"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
@@ -353,19 +357,29 @@ func syncScheduleFromSheets() error {
 
 // Auto-sync goroutine
 func startAutoSync(interval time.Duration) {
-	if sheetsService == nil {
-		log.Println("Auto-sync disabled (Sheets not configured)")
-		return
-	}
-
 	go func() {
 		// Initial sync after startup
 		time.Sleep(10 * time.Second)
-		syncFromSheets()
+
+		// Try Google Sheets API first, then published URL
+		if sheetsService != nil && googleSheetsID != "" {
+			syncFromSheets()
+		} else {
+			// Try published URL
+			if err := syncFromPublishedURL(); err != nil {
+				log.Printf("Auto-sync from published URL failed: %v", err)
+			}
+		}
 
 		ticker := time.NewTicker(interval)
 		for range ticker.C {
-			syncFromSheets()
+			if sheetsService != nil && googleSheetsID != "" {
+				syncFromSheets()
+			} else {
+				if err := syncFromPublishedURL(); err != nil {
+					log.Printf("Auto-sync from published URL failed: %v", err)
+				}
+			}
 		}
 	}()
 
@@ -1363,12 +1377,638 @@ func handleSync(w http.ResponseWriter, r *http.Request) {
 func handleGetSyncStatus(w http.ResponseWriter, r *http.Request) {
 	lastSync, _ := getSetting("last_sync")
 	configured := sheetsService != nil && googleSheetsID != ""
+	publishedURL, _ := getSetting("published_sheet_url")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"configured": configured,
-		"lastSync":   lastSync,
-		"sheetId":    googleSheetsID,
+		"configured":   configured,
+		"lastSync":     lastSync,
+		"sheetId":      googleSheetsID,
+		"publishedUrl": publishedURL,
 	})
+}
+
+// ==================== IMPORT FROM PUBLISHED URL ====================
+
+func handleImportFromURL(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	if body.URL == "" {
+		writeError(w, http.StatusBadRequest, "URL is required")
+		return
+	}
+
+	// Save the URL for future reference
+	setSetting("published_sheet_url", body.URL)
+
+	// Extract the spreadsheet key from the URL
+	// Format: https://docs.google.com/spreadsheets/d/e/XXXXX/pubhtml
+	var spreadsheetKey string
+	if strings.Contains(body.URL, "/d/e/") {
+		re := regexp.MustCompile(`/d/e/([^/]+)`)
+		matches := re.FindStringSubmatch(body.URL)
+		if len(matches) > 1 {
+			spreadsheetKey = matches[1]
+		}
+	} else if strings.Contains(body.URL, "/d/") {
+		re := regexp.MustCompile(`/d/([^/]+)`)
+		matches := re.FindStringSubmatch(body.URL)
+		if len(matches) > 1 {
+			spreadsheetKey = matches[1]
+		}
+	}
+
+	if spreadsheetKey == "" {
+		writeError(w, http.StatusBadRequest, "Could not extract spreadsheet ID from URL")
+		return
+	}
+
+	// First, get the list of sheets from the pubhtml page
+	sheetsInfo, err := fetchSheetsList(body.URL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to fetch sheets list: "+err.Error())
+		return
+	}
+
+	teamsImported := 0
+	weeksImported := 0
+	var importErrors []string
+
+	// Find and import Teams sheet
+	for sheetName, gid := range sheetsInfo {
+		if strings.ToLower(sheetName) == "teams" {
+			csvURL := fmt.Sprintf("https://docs.google.com/spreadsheets/d/e/%s/pub?gid=%s&single=true&output=csv", spreadsheetKey, gid)
+			teams, err := importTeamsFromCSV(csvURL)
+			if err != nil {
+				importErrors = append(importErrors, "Teams: "+err.Error())
+			} else {
+				teamsImported = len(teams)
+			}
+			break
+		}
+	}
+
+	// Find and import Week sheets (Week 1, Week 2, etc., SemiFinals, Finals)
+	weekPattern := regexp.MustCompile(`(?i)^(week\s*\d+|semifinals?|finals?)$`)
+	weekNum := 0
+	for sheetName, gid := range sheetsInfo {
+		if weekPattern.MatchString(sheetName) {
+			weekNum++
+			csvURL := fmt.Sprintf("https://docs.google.com/spreadsheets/d/e/%s/pub?gid=%s&single=true&output=csv", spreadsheetKey, gid)
+			count, err := importWeekFromCSV(csvURL, sheetName, weekNum)
+			if err != nil {
+				importErrors = append(importErrors, sheetName+": "+err.Error())
+			} else {
+				weeksImported += count
+			}
+		}
+	}
+
+	// Update last sync time
+	setSetting("last_sync", time.Now().UTC().Format(time.RFC3339))
+
+	result := map[string]interface{}{
+		"success":       len(importErrors) == 0,
+		"teamsImported": teamsImported,
+		"weeksImported": weeksImported,
+		"sheetsFound":   len(sheetsInfo),
+	}
+	if len(importErrors) > 0 {
+		result["errors"] = importErrors
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func fetchSheetsList(pubhtmlURL string) (map[string]string, error) {
+	resp, err := http.Get(pubhtmlURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	sheets := make(map[string]string)
+
+	// Find sheet tabs - they're usually in <li> elements with sheet-menu-button class
+	// or in a script that defines the sheets
+	var findSheets func(*html.Node)
+	findSheets = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "li" {
+			var sheetName, gid string
+			for _, attr := range n.Attr {
+				if attr.Key == "id" && strings.HasPrefix(attr.Val, "sheet-button-") {
+					gid = strings.TrimPrefix(attr.Val, "sheet-button-")
+				}
+			}
+			// Get the text content
+			if gid != "" {
+				sheetName = getTextContent(n)
+				if sheetName != "" {
+					sheets[sheetName] = gid
+				}
+			}
+		}
+		// Also check for links with gid parameter
+		if n.Type == html.ElementNode && n.Data == "a" {
+			for _, attr := range n.Attr {
+				if attr.Key == "href" && strings.Contains(attr.Val, "gid=") {
+					re := regexp.MustCompile(`gid=(\d+)`)
+					matches := re.FindStringSubmatch(attr.Val)
+					if len(matches) > 1 {
+						gid := matches[1]
+						name := getTextContent(n)
+						if name != "" && gid != "" {
+							sheets[name] = gid
+						}
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findSheets(c)
+		}
+	}
+	findSheets(doc)
+
+	// If we didn't find sheets via HTML, try to parse from JavaScript
+	if len(sheets) == 0 {
+		bodyContent := getBodyContent(doc)
+		// Look for patterns like "sheetNames": ["Teams", "Week 1", ...]
+		re := regexp.MustCompile(`"([^"]+)":\s*(\d+)`)
+		matches := re.FindAllStringSubmatch(bodyContent, -1)
+		for _, m := range matches {
+			if len(m) > 2 {
+				sheets[m[1]] = m[2]
+			}
+		}
+	}
+
+	// Fallback: if still no sheets, try gid=0 for first sheet
+	if len(sheets) == 0 {
+		sheets["Sheet1"] = "0"
+	}
+
+	return sheets, nil
+}
+
+func getTextContent(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return strings.TrimSpace(n.Data)
+	}
+	var text string
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		text += getTextContent(c)
+	}
+	return strings.TrimSpace(text)
+}
+
+func getBodyContent(n *html.Node) string {
+	if n.Type == html.ElementNode && n.Data == "body" {
+		return getTextContent(n)
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if content := getBodyContent(c); content != "" {
+			return content
+		}
+	}
+	return ""
+}
+
+func importTeamsFromCSV(csvURL string) ([]Team, error) {
+	resp, err := http.Get(csvURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	reader := csv.NewReader(resp.Body)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(records) < 2 {
+		return nil, fmt.Errorf("no data rows found")
+	}
+
+	var teams []Team
+	for i, row := range records[1:] { // Skip header
+		if len(row) < 1 || strings.TrimSpace(row[0]) == "" {
+			continue
+		}
+
+		teamName := strings.TrimSpace(row[0])
+
+		// Extract players (columns B-F, indices 1-5)
+		players := []string{}
+		for j := 1; j <= 5 && j < len(row); j++ {
+			if p := strings.TrimSpace(row[j]); p != "" {
+				players = append(players, p)
+			}
+		}
+
+		// Extract subs (columns G-J, indices 6-9)
+		subs := []string{}
+		for j := 6; j <= 9 && j < len(row); j++ {
+			if s := strings.TrimSpace(row[j]); s != "" {
+				subs = append(subs, s)
+			}
+		}
+
+		team := Team{
+			ID:      fmt.Sprintf("team-%d", i+1),
+			Name:    teamName,
+			Players: players,
+			Subs:    subs,
+		}
+
+		if err := saveTeam(team); err != nil {
+			log.Printf("Failed to save team %s: %v", teamName, err)
+		}
+		teams = append(teams, team)
+	}
+
+	return teams, nil
+}
+
+func importWeekFromCSV(csvURL string, weekName string, weekNum int) (int, error) {
+	resp, err := http.Get(csvURL)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	reader := csv.NewReader(resp.Body)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return 0, err
+	}
+
+	if len(records) < 2 {
+		return 0, fmt.Errorf("no data rows found")
+	}
+
+	// Parse the week sheet - expecting Lobby as rows, Teams as columns or similar structure
+	// Try to detect the format
+	lobbies := []Lobby{}
+
+	for i, row := range records[1:] { // Skip header
+		if len(row) < 2 {
+			continue
+		}
+
+		// First column might be lobby name, rest are teams
+		lobbyName := strings.TrimSpace(row[0])
+		if lobbyName == "" {
+			lobbyName = fmt.Sprintf("Lobby %d", i+1)
+		}
+
+		teams := []string{}
+		for j := 1; j < len(row); j++ {
+			if t := strings.TrimSpace(row[j]); t != "" {
+				teams = append(teams, t)
+			}
+		}
+
+		if len(teams) > 0 {
+			lobbies = append(lobbies, Lobby{
+				ID:    fmt.Sprintf("%s-lobby-%d", strings.ToLower(strings.ReplaceAll(weekName, " ", "-")), i+1),
+				Name:  lobbyName,
+				Teams: teams,
+			})
+		}
+	}
+
+	weekID := strings.ToLower(strings.ReplaceAll(weekName, " ", "-"))
+	week := Week{
+		ID:      weekID,
+		Number:  weekNum,
+		Name:    weekName,
+		Lobbies: lobbies,
+	}
+
+	if err := saveWeek(week); err != nil {
+		return 0, err
+	}
+
+	return 1, nil
+}
+
+// Alternative: Import from HTML tables when CSV doesn't work
+func handleImportFromHTML(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Fetch the pubhtml page
+	resp, err := http.Get(body.URL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to fetch: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to parse HTML: "+err.Error())
+		return
+	}
+
+	// Find all tables and extract data
+	tables := extractTables(doc)
+
+	teamsImported := 0
+	weeksImported := 0
+
+	for tableName, tableData := range tables {
+		nameLower := strings.ToLower(tableName)
+		if strings.Contains(nameLower, "team") {
+			// Import as teams
+			for i, row := range tableData {
+				if i == 0 || len(row) < 1 {
+					continue // Skip header
+				}
+				teamName := row[0]
+				if teamName == "" {
+					continue
+				}
+
+				players := []string{}
+				for j := 1; j <= 5 && j < len(row); j++ {
+					if p := strings.TrimSpace(row[j]); p != "" {
+						players = append(players, p)
+					}
+				}
+
+				subs := []string{}
+				for j := 6; j <= 9 && j < len(row); j++ {
+					if s := strings.TrimSpace(row[j]); s != "" {
+						subs = append(subs, s)
+					}
+				}
+
+				team := Team{
+					ID:      fmt.Sprintf("team-%d", teamsImported+1),
+					Name:    teamName,
+					Players: players,
+					Subs:    subs,
+				}
+				saveTeam(team)
+				teamsImported++
+			}
+		} else if strings.Contains(nameLower, "week") || strings.Contains(nameLower, "semi") || strings.Contains(nameLower, "final") {
+			// Import as week/schedule
+			lobbies := []Lobby{}
+			for i, row := range tableData {
+				if i == 0 || len(row) < 2 {
+					continue
+				}
+				lobbyName := row[0]
+				if lobbyName == "" {
+					lobbyName = fmt.Sprintf("Lobby %d", i)
+				}
+
+				teams := []string{}
+				for j := 1; j < len(row); j++ {
+					if t := strings.TrimSpace(row[j]); t != "" {
+						teams = append(teams, t)
+					}
+				}
+
+				if len(teams) > 0 {
+					lobbies = append(lobbies, Lobby{
+						Name:  lobbyName,
+						Teams: teams,
+					})
+				}
+			}
+
+			if len(lobbies) > 0 {
+				weeksImported++
+				weekID := strings.ToLower(strings.ReplaceAll(tableName, " ", "-"))
+				week := Week{
+					ID:      weekID,
+					Number:  weeksImported,
+					Name:    tableName,
+					Lobbies: lobbies,
+				}
+				saveWeek(week)
+			}
+		}
+	}
+
+	setSetting("last_sync", time.Now().UTC().Format(time.RFC3339))
+	setSetting("published_sheet_url", body.URL)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":       true,
+		"teamsImported": teamsImported,
+		"weeksImported": weeksImported,
+		"tablesFound":   len(tables),
+	})
+}
+
+func extractTables(doc *html.Node) map[string][][]string {
+	tables := make(map[string][][]string)
+	tableNum := 0
+
+	var findTables func(*html.Node, string)
+	findTables = func(n *html.Node, currentSheet string) {
+		// Check for sheet name indicators
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				if attr.Key == "id" && strings.HasPrefix(attr.Val, "sheet-button-") {
+					// Found a sheet tab, get its name
+					currentSheet = getTextContent(n)
+				}
+			}
+		}
+
+		if n.Type == html.ElementNode && n.Data == "table" {
+			tableNum++
+			tableName := currentSheet
+			if tableName == "" {
+				tableName = fmt.Sprintf("Table %d", tableNum)
+			}
+
+			var rows [][]string
+			var extractRows func(*html.Node)
+			extractRows = func(n *html.Node) {
+				if n.Type == html.ElementNode && n.Data == "tr" {
+					var cells []string
+					for c := n.FirstChild; c != nil; c = c.NextSibling {
+						if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
+							cells = append(cells, strings.TrimSpace(getTextContent(c)))
+						}
+					}
+					if len(cells) > 0 {
+						rows = append(rows, cells)
+					}
+				}
+				for c := n.FirstChild; c != nil; c = c.NextSibling {
+					extractRows(c)
+				}
+			}
+			extractRows(n)
+
+			if len(rows) > 0 {
+				tables[tableName] = rows
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findTables(c, currentSheet)
+		}
+	}
+	findTables(doc, "")
+
+	return tables
+}
+
+// Auto-sync from published URL (cron-like)
+func syncFromPublishedURL() error {
+	url, _ := getSetting("published_sheet_url")
+	if url == "" {
+		return fmt.Errorf("no published URL configured")
+	}
+
+	log.Println("Starting sync from published URL...")
+
+	// Use the HTML import method as it's more reliable
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	tables := extractTables(doc)
+
+	teamsImported := 0
+	weeksImported := 0
+
+	for tableName, tableData := range tables {
+		nameLower := strings.ToLower(tableName)
+		if strings.Contains(nameLower, "team") {
+			for i, row := range tableData {
+				if i == 0 || len(row) < 1 {
+					continue
+				}
+				teamName := row[0]
+				if teamName == "" {
+					continue
+				}
+
+				players := []string{}
+				for j := 1; j <= 5 && j < len(row); j++ {
+					if p := strings.TrimSpace(row[j]); p != "" {
+						players = append(players, p)
+					}
+				}
+
+				subs := []string{}
+				for j := 6; j <= 9 && j < len(row); j++ {
+					if s := strings.TrimSpace(row[j]); s != "" {
+						subs = append(subs, s)
+					}
+				}
+
+				team := Team{
+					ID:      fmt.Sprintf("team-%d", teamsImported+1),
+					Name:    teamName,
+					Players: players,
+					Subs:    subs,
+				}
+				saveTeam(team)
+				teamsImported++
+			}
+		} else if strings.Contains(nameLower, "week") || strings.Contains(nameLower, "semi") || strings.Contains(nameLower, "final") {
+			lobbies := []Lobby{}
+			for i, row := range tableData {
+				if i == 0 || len(row) < 2 {
+					continue
+				}
+				lobbyName := row[0]
+				if lobbyName == "" {
+					lobbyName = "Lobby " + strconv.Itoa(i)
+				}
+
+				teams := []string{}
+				for j := 1; j < len(row); j++ {
+					if t := strings.TrimSpace(row[j]); t != "" {
+						teams = append(teams, t)
+					}
+				}
+
+				if len(teams) > 0 {
+					lobbies = append(lobbies, Lobby{
+						Name:  lobbyName,
+						Teams: teams,
+					})
+				}
+			}
+
+			if len(lobbies) > 0 {
+				weeksImported++
+				weekID := strings.ToLower(strings.ReplaceAll(tableName, " ", "-"))
+				week := Week{
+					ID:      weekID,
+					Number:  weeksImported,
+					Name:    tableName,
+					Lobbies: lobbies,
+				}
+				saveWeek(week)
+			}
+		}
+	}
+
+	setSetting("last_sync", time.Now().UTC().Format(time.RFC3339))
+	log.Printf("Sync complete: %d teams, %d weeks", teamsImported, weeksImported)
+	return nil
 }
 
 // ==================== HELPERS ====================
@@ -1461,6 +2101,8 @@ func main() {
 	r.HandleFunc("/api/admin/set-admin", handleSetAdmin).Methods("POST")
 	r.HandleFunc("/api/admin/sync", handleSync).Methods("POST")
 	r.HandleFunc("/api/admin/sync-status", handleGetSyncStatus).Methods("GET")
+	r.HandleFunc("/api/admin/import-from-url", handleImportFromURL).Methods("POST")
+	r.HandleFunc("/api/admin/import-from-html", handleImportFromHTML).Methods("POST")
 
 	// Static files
 	r.PathPrefix("/").HandlerFunc(serveStatic)

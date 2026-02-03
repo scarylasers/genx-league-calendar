@@ -667,27 +667,102 @@ async function loadSyncStatus() {
         const res = await fetch('/api/admin/sync-status', { credentials: 'include' });
         if (res.ok) {
             const data = await res.json();
-            const statusText = document.getElementById('syncStatusText');
-            const sheetLink = document.getElementById('sheetLink');
 
-            if (data.configured) {
+            // Update last sync time
+            const lastSyncEl = document.getElementById('lastSyncTime');
+            if (lastSyncEl) {
                 if (data.lastSync) {
                     const lastSync = new Date(data.lastSync);
-                    statusText.innerHTML = `<span class="sync-ok">✓ Connected</span> Last sync: ${lastSync.toLocaleString()}`;
+                    lastSyncEl.textContent = lastSync.toLocaleString();
                 } else {
-                    statusText.innerHTML = '<span class="sync-ok">✓ Connected</span> Not synced yet';
+                    lastSyncEl.textContent = 'Never';
                 }
-                if (data.sheetId) {
-                    sheetLink.href = `https://docs.google.com/spreadsheets/d/${data.sheetId}`;
-                    sheetLink.style.display = 'inline-block';
-                }
-            } else {
-                statusText.innerHTML = '<span class="sync-warning">⚠ Not configured</span> Set GOOGLE_SHEETS_ID and GOOGLE_SERVICE_ACCOUNT_JSON';
+            }
+
+            // Pre-fill URL if saved
+            const urlInput = document.getElementById('sheetUrl');
+            if (urlInput && data.publishedUrl) {
+                urlInput.value = data.publishedUrl;
             }
         }
     } catch (err) {
         console.error('Failed to load sync status:', err);
     }
+}
+
+// Import from published URL
+async function importFromURL() {
+    const url = document.getElementById('sheetUrl').value.trim();
+    if (!url) {
+        alert('Please enter the published spreadsheet URL');
+        return;
+    }
+
+    const statusDiv = document.getElementById('importStatus');
+    statusDiv.innerHTML = '<span class="sync-pending">⏳ Importing from URL...</span>';
+    statusDiv.className = 'import-status importing';
+
+    try {
+        // Try HTML import first (more reliable for published sheets)
+        const res = await fetch('/api/admin/import-from-html', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ url })
+        });
+
+        if (res.ok) {
+            const result = await res.json();
+            statusDiv.innerHTML = `<span class="sync-ok">✓ Import successful!</span> ${result.teamsImported} teams, ${result.weeksImported} weeks imported`;
+            statusDiv.className = 'import-status success';
+
+            // Update last sync time
+            document.getElementById('lastSyncTime').textContent = new Date().toLocaleString();
+
+            // Refresh data
+            await fetchTeams();
+            await fetchWeeks();
+            renderWeeksList();
+            renderTeamRoster();
+            renderAdminWeeksList();
+
+            if (result.errors && result.errors.length > 0) {
+                console.warn('Import warnings:', result.errors);
+            }
+        } else {
+            const err = await res.json();
+            statusDiv.innerHTML = `<span class="sync-error">✗ Import failed:</span> ${err.error}`;
+            statusDiv.className = 'import-status error';
+        }
+    } catch (err) {
+        console.error('Import error:', err);
+        statusDiv.innerHTML = '<span class="sync-error">✗ Import failed</span>';
+        statusDiv.className = 'import-status error';
+    }
+}
+
+async function refreshFromURL() {
+    const url = document.getElementById('sheetUrl').value.trim();
+    if (!url) {
+        // Try to load saved URL
+        try {
+            const res = await fetch('/api/admin/sync-status', { credentials: 'include' });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.publishedUrl) {
+                    document.getElementById('sheetUrl').value = data.publishedUrl;
+                    importFromURL();
+                    return;
+                }
+            }
+        } catch (err) {
+            // ignore
+        }
+        alert('Please enter a spreadsheet URL first');
+        return;
+    }
+
+    importFromURL();
 }
 
 async function triggerSync() {
