@@ -104,6 +104,7 @@ function showLoggedIn() {
     // Load admin data if admin
     if (currentUser.isAdmin) {
         renderAdminWeeksList();
+        renderAdminTeamsList();
     }
 }
 
@@ -1827,5 +1828,194 @@ async function toggleUserAdmin(discordId, makeAdmin) {
     } catch (err) {
         console.error('Failed to update admin:', err);
         alert('Failed to update admin status');
+    }
+}
+
+// ==================== ADMIN TEAM MANAGEMENT ====================
+
+let editingTeamId = null;
+
+function renderAdminTeamsList() {
+    const container = document.getElementById('adminTeamsList');
+    if (!container) return;
+
+    if (teams.length === 0) {
+        container.innerHTML = '<p class="no-data">No teams yet. Create one or import from spreadsheet.</p>';
+        return;
+    }
+
+    // Sort teams alphabetically
+    const sorted = [...teams].sort((a, b) => a.name.localeCompare(b.name));
+
+    container.innerHTML = `
+        <div class="teams-table">
+            <div class="teams-header">
+                <span class="team-col-name">Team Name</span>
+                <span class="team-col-roster">Roster</span>
+                <span class="team-col-subs">Subs</span>
+                <span class="team-col-actions">Actions</span>
+            </div>
+            ${sorted.map(team => `
+                <div class="team-row" data-team-id="${escapeHtml(team.id || team.name)}">
+                    <span class="team-col-name">${escapeHtml(team.name)}</span>
+                    <span class="team-col-roster">${(team.players || []).length} players</span>
+                    <span class="team-col-subs">${(team.subs || []).length} subs</span>
+                    <span class="team-col-actions">
+                        <button class="btn btn-small btn-secondary" onclick="showEditTeamModal('${escapeHtml(team.id || team.name)}')">Edit</button>
+                    </span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function showCreateTeamModal() {
+    editingTeamId = null;
+    document.getElementById('editTeamTitle').textContent = 'Create New Team';
+    document.getElementById('editTeamId').value = '';
+    document.getElementById('editTeamName').value = '';
+
+    // Clear player inputs
+    for (let i = 1; i <= 5; i++) {
+        document.getElementById(`editPlayer${i}`).value = '';
+    }
+    for (let i = 1; i <= 4; i++) {
+        document.getElementById(`editSub${i}`).value = '';
+    }
+
+    // Hide delete button for new teams
+    document.getElementById('deleteTeamBtn').style.display = 'none';
+
+    document.getElementById('editTeamModal').classList.add('active');
+}
+
+function showEditTeamModal(teamId) {
+    const team = teams.find(t => (t.id || t.name) === teamId);
+    if (!team) {
+        alert('Team not found');
+        return;
+    }
+
+    editingTeamId = teamId;
+    document.getElementById('editTeamTitle').textContent = 'Edit Team';
+    document.getElementById('editTeamId').value = teamId;
+    document.getElementById('editTeamName').value = team.name || '';
+
+    // Fill player inputs
+    const players = team.players || [];
+    for (let i = 1; i <= 5; i++) {
+        document.getElementById(`editPlayer${i}`).value = players[i - 1] || '';
+    }
+
+    // Fill sub inputs
+    const subs = team.subs || [];
+    for (let i = 1; i <= 4; i++) {
+        document.getElementById(`editSub${i}`).value = subs[i - 1] || '';
+    }
+
+    // Show delete button for existing teams
+    document.getElementById('deleteTeamBtn').style.display = 'inline-block';
+
+    document.getElementById('editTeamModal').classList.add('active');
+}
+
+function closeEditTeamModal() {
+    document.getElementById('editTeamModal').classList.remove('active');
+    editingTeamId = null;
+}
+
+async function saveTeam() {
+    const teamName = document.getElementById('editTeamName').value.trim();
+    if (!teamName) {
+        alert('Please enter a team name');
+        return;
+    }
+
+    // Collect players (filter empty)
+    const players = [];
+    for (let i = 1; i <= 5; i++) {
+        const val = document.getElementById(`editPlayer${i}`).value.trim();
+        if (val) players.push(val);
+    }
+
+    // Collect subs (filter empty)
+    const subs = [];
+    for (let i = 1; i <= 4; i++) {
+        const val = document.getElementById(`editSub${i}`).value.trim();
+        if (val) subs.push(val);
+    }
+
+    const teamData = {
+        name: teamName,
+        players: players,
+        subs: subs
+    };
+
+    try {
+        let res;
+        if (editingTeamId) {
+            // Update existing team
+            res = await fetch(`/api/admin/teams/${encodeURIComponent(editingTeamId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(teamData)
+            });
+        } else {
+            // Create new team
+            res = await fetch('/api/admin/teams', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(teamData)
+            });
+        }
+
+        if (res.ok) {
+            closeEditTeamModal();
+            await fetchTeams();
+            renderAdminTeamsList();
+            renderTeamRoster();
+            alert(editingTeamId ? 'Team updated!' : 'Team created!');
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to save team');
+        }
+    } catch (err) {
+        console.error('Save team error:', err);
+        alert('Failed to save team');
+    }
+}
+
+async function deleteTeam() {
+    if (!editingTeamId) return;
+
+    const team = teams.find(t => (t.id || t.name) === editingTeamId);
+    if (!team) return;
+
+    if (!confirm(`Are you sure you want to delete "${team.name}"? This cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/admin/teams/${encodeURIComponent(editingTeamId)}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            closeEditTeamModal();
+            await fetchTeams();
+            renderAdminTeamsList();
+            renderTeamRoster();
+            renderWeeksList();
+            alert('Team deleted');
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to delete team');
+        }
+    } catch (err) {
+        console.error('Delete team error:', err);
+        alert('Failed to delete team');
     }
 }

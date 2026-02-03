@@ -270,6 +270,15 @@
                     <!-- Users list populated dynamically -->
                 </div>
             </div>
+
+            <div class="admin-section">
+                <h3>Team Management</h3>
+                <p>Edit team names, rosters, and substitutes.</p>
+                <button class="btn btn-primary" onclick="showCreateTeamModal()">+ Create New Team</button>
+                <div id="adminTeamsList" class="admin-teams-list">
+                    <!-- Teams list populated dynamically -->
+                </div>
+            </div>
         </section>
 
         <!-- Link Player Modal -->
@@ -422,6 +431,42 @@ Example:
                 <div class="modal-buttons">
                     <button class="btn btn-primary" onclick="importPlayersFromPaste()">Import Players</button>
                     <button class="btn btn-secondary" onclick="closeImportPlayersModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Team Modal -->
+        <div id="editTeamModal" class="modal">
+            <div class="modal-content modal-large">
+                <h3 id="editTeamTitle">Edit Team</h3>
+                <input type="hidden" id="editTeamId">
+                <div class="form-row">
+                    <label for="editTeamName">Team Name:</label>
+                    <input type="text" id="editTeamName" placeholder="Team name">
+                </div>
+                <div class="form-row">
+                    <label>Main Roster (5 players):</label>
+                    <div class="player-inputs">
+                        <input type="text" id="editPlayer1" placeholder="Player 1">
+                        <input type="text" id="editPlayer2" placeholder="Player 2">
+                        <input type="text" id="editPlayer3" placeholder="Player 3">
+                        <input type="text" id="editPlayer4" placeholder="Player 4">
+                        <input type="text" id="editPlayer5" placeholder="Player 5">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>Substitutes (up to 4):</label>
+                    <div class="player-inputs">
+                        <input type="text" id="editSub1" placeholder="Sub 1">
+                        <input type="text" id="editSub2" placeholder="Sub 2">
+                        <input type="text" id="editSub3" placeholder="Sub 3">
+                        <input type="text" id="editSub4" placeholder="Sub 4">
+                    </div>
+                </div>
+                <div class="modal-buttons">
+                    <button class="btn btn-primary" onclick="saveTeam()">Save Team</button>
+                    <button class="btn btn-secondary" onclick="closeEditTeamModal()">Cancel</button>
+                    <button class="btn btn-danger" id="deleteTeamBtn" onclick="deleteTeam()" style="margin-left: auto;">Delete Team</button>
                 </div>
             </div>
         </div>

@@ -509,6 +509,11 @@ func saveTeam(t Team) error {
 	return err
 }
 
+func deleteTeam(id string) error {
+	_, err := db.Exec("DELETE FROM teams WHERE id = $1", id)
+	return err
+}
+
 // ==================== WEEK FUNCTIONS ====================
 
 func getAllWeeks() ([]Week, error) {
@@ -2065,6 +2070,141 @@ func isSubEligible(subCR, outgoingCR int, outgoingTier *Tier, tiers []Tier, maxO
 
 // ==================== ADMIN HANDLERS ====================
 
+// Team management
+func handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	teamID := vars["teamId"]
+
+	var body struct {
+		Name    string   `json:"name"`
+		Players []string `json:"players"`
+		Subs    []string `json:"subs"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Get existing team
+	team, err := getTeamByID(teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if team == nil {
+		writeError(w, http.StatusNotFound, "Team not found")
+		return
+	}
+
+	// Update fields
+	if body.Name != "" {
+		team.Name = body.Name
+	}
+	if body.Players != nil {
+		team.Players = body.Players
+	}
+	if body.Subs != nil {
+		team.Subs = body.Subs
+	}
+
+	if err := saveTeam(*team); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"team":    team,
+	})
+}
+
+func handleCreateTeam(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		Name    string   `json:"name"`
+		Players []string `json:"players"`
+		Subs    []string `json:"subs"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	if body.Name == "" {
+		writeError(w, http.StatusBadRequest, "Team name is required")
+		return
+	}
+
+	// Check if team name already exists
+	existing, _ := getTeamByName(body.Name)
+	if existing != nil {
+		writeError(w, http.StatusBadRequest, "A team with this name already exists")
+		return
+	}
+
+	team := Team{
+		ID:      "team-" + strings.ToLower(strings.ReplaceAll(body.Name, " ", "-")),
+		Name:    body.Name,
+		Players: body.Players,
+		Subs:    body.Subs,
+	}
+
+	if team.Players == nil {
+		team.Players = []string{}
+	}
+	if team.Subs == nil {
+		team.Subs = []string{}
+	}
+
+	if err := saveTeam(team); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"team":    team,
+	})
+}
+
+func handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	teamID := vars["teamId"]
+
+	team, _ := getTeamByID(teamID)
+	if team == nil {
+		writeError(w, http.StatusNotFound, "Team not found")
+		return
+	}
+
+	if err := deleteTeam(teamID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":  true,
+		"teamName": team.Name,
+	})
+}
+
 func handleImportTeams(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
 	if session == nil || !session.IsAdmin {
@@ -2958,6 +3098,9 @@ func main() {
 	// Admin routes
 	r.HandleFunc("/api/admin/users", handleGetUsers).Methods("GET")
 	r.HandleFunc("/api/admin/set-admin", handleSetAdmin).Methods("POST")
+	r.HandleFunc("/api/admin/teams", handleCreateTeam).Methods("POST")
+	r.HandleFunc("/api/admin/teams/{teamId}", handleUpdateTeam).Methods("PUT")
+	r.HandleFunc("/api/admin/teams/{teamId}", handleDeleteTeam).Methods("DELETE")
 	r.HandleFunc("/api/admin/import-teams", handleImportTeams).Methods("POST")
 	r.HandleFunc("/api/admin/import-weeks", handleImportWeeks).Methods("POST")
 	r.HandleFunc("/api/admin/sync", handleSync).Methods("POST")
