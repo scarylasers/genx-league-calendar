@@ -432,6 +432,35 @@ func getActiveSeasonID() string {
 	return "season-1" // fallback default
 }
 
+// Get the season ID to use for queries - checks for admin override first
+func getEffectiveSeasonID(r *http.Request) string {
+	// Check if admin has a viewing override via query param or header
+	if r != nil {
+		if viewSeason := r.URL.Query().Get("season"); viewSeason != "" {
+			return viewSeason
+		}
+		if viewSeason := r.Header.Get("X-View-Season"); viewSeason != "" {
+			return viewSeason
+		}
+	}
+	return getActiveSeasonID()
+}
+
+// Get season for data queries - used by API handlers
+func getQuerySeasonID(r *http.Request) string {
+	session := getSessionFromRequest(r)
+
+	// Admins can view any season via query param
+	if session != nil && session.IsAdmin {
+		if viewSeason := r.URL.Query().Get("viewSeason"); viewSeason != "" {
+			return viewSeason
+		}
+	}
+
+	// Everyone else gets the active (published) season
+	return getActiveSeasonID()
+}
+
 // ==================== GOOGLE SHEETS ====================
 
 func initSheetsService() error {
@@ -628,8 +657,7 @@ func startAutoSync(interval time.Duration) {
 
 // ==================== TEAM FUNCTIONS ====================
 
-func getAllTeams() ([]Team, error) {
-	seasonID := getActiveSeasonID()
+func getAllTeamsForSeason(seasonID string) ([]Team, error) {
 	rows, err := db.Query("SELECT id, name, players, subs FROM teams WHERE season_id = $1 OR season_id IS NULL ORDER BY name", seasonID)
 	if err != nil {
 		return nil, err
@@ -700,8 +728,7 @@ func deleteTeam(id string) error {
 
 // ==================== WEEK FUNCTIONS ====================
 
-func getAllWeeks() ([]Week, error) {
-	seasonID := getActiveSeasonID()
+func getAllWeeksForSeason(seasonID string) ([]Week, error) {
 	rows, err := db.Query("SELECT id, number, name, date, time, lobbies FROM weeks WHERE season_id = $1 OR season_id IS NULL ORDER BY number", seasonID)
 	if err != nil {
 		return nil, err
@@ -1522,7 +1549,8 @@ func handleLinkPlayer(w http.ResponseWriter, r *http.Request) {
 // ==================== API HANDLERS ====================
 
 func handleGetTeams(w http.ResponseWriter, r *http.Request) {
-	teams, err := getAllTeams()
+	seasonID := getQuerySeasonID(r)
+	teams, err := getAllTeamsForSeason(seasonID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1531,7 +1559,8 @@ func handleGetTeams(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetWeeks(w http.ResponseWriter, r *http.Request) {
-	weeks, err := getAllWeeks()
+	seasonID := getQuerySeasonID(r)
+	weeks, err := getAllWeeksForSeason(seasonID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1616,7 +1645,7 @@ func handleGetAllAvailability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	weeks, _ := getAllWeeks()
+	weeks, _ := getAllWeeksForSeason(getActiveSeasonID())
 	var result []map[string]interface{}
 
 	for _, week := range weeks {
@@ -1797,7 +1826,7 @@ func handleAnnounceWeek(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	weeks, _ := getAllWeeks()
+	weeks, _ := getAllWeeksForSeason(getActiveSeasonID())
 	var week *Week
 	for _, wk := range weeks {
 		if wk.ID == weekID {
@@ -2000,7 +2029,7 @@ func isPlayerOnTeam(playerName string) string {
 // isPlayerOnTeamExcluding checks if a player is on any team roster, excluding a specific team
 // This is used when updating a team so its own players don't count as duplicates
 func isPlayerOnTeamExcluding(playerName string, excludeTeamID string) string {
-	teams, err := getAllTeams()
+	teams, err := getAllTeamsForSeason(getActiveSeasonID())
 	if err != nil {
 		return ""
 	}
@@ -2794,7 +2823,7 @@ func handleDeleteAllTeams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get count before deleting
-	teams, _ := getAllTeams()
+	teams, _ := getAllTeamsForSeason(getActiveSeasonID())
 	count := len(teams)
 
 	// Delete all teams
@@ -2818,7 +2847,7 @@ func handleDeleteAllWeeks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get count before deleting
-	weeks, _ := getAllWeeks()
+	weeks, _ := getAllWeeksForSeason(getActiveSeasonID())
 	count := len(weeks)
 
 	// Delete all weeks

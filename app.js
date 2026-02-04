@@ -8,7 +8,8 @@ let teams = [];
 let weeks = [];
 let subs = [];
 let seasons = [];
-let activeSeason = null;
+let activeSeason = null;      // The published season (what users see)
+let viewingSeason = null;     // The season admin is currently viewing
 let userAvailability = {};
 let myTeam = null;
 let mySub = null; // If current user is registered as sub
@@ -48,6 +49,10 @@ async function fetchSeasons() {
         if (res.ok) {
             seasons = await res.json() || [];
             activeSeason = seasons.find(s => s.isActive) || seasons[0];
+            // Default viewing season to active season if not set
+            if (!viewingSeason) {
+                viewingSeason = activeSeason;
+            }
             updateSeasonDisplay();
         }
     } catch (err) {
@@ -57,18 +62,33 @@ async function fetchSeasons() {
 
 function updateSeasonDisplay() {
     const titleEl = document.getElementById('currentSeasonTitle');
-    if (titleEl && activeSeason) {
-        titleEl.textContent = activeSeason.title;
+    const displaySeason = (currentUser && currentUser.isAdmin) ? viewingSeason : activeSeason;
+
+    if (titleEl && displaySeason) {
+        let title = displaySeason.title;
+        // Show indicator if admin is viewing a different season
+        if (currentUser && currentUser.isAdmin && viewingSeason && activeSeason && viewingSeason.id !== activeSeason.id) {
+            title += ' (viewing)';
+        }
+        titleEl.textContent = title;
     }
 
-    // Update season logo
+    // Update season logo based on viewing season for admins
     const seasonLogoEl = document.getElementById('seasonLogo');
-    if (seasonLogoEl && activeSeason && activeSeason.logoUrl) {
-        seasonLogoEl.src = activeSeason.logoUrl;
+    if (seasonLogoEl && displaySeason && displaySeason.logoUrl) {
+        seasonLogoEl.src = displaySeason.logoUrl;
         seasonLogoEl.style.display = 'block';
     } else if (seasonLogoEl) {
         seasonLogoEl.style.display = 'none';
     }
+}
+
+// Get the season ID to use for API calls
+function getViewingSeasonId() {
+    if (currentUser && currentUser.isAdmin && viewingSeason) {
+        return viewingSeason.id;
+    }
+    return activeSeason ? activeSeason.id : null;
 }
 
 // League logo (global)
@@ -198,15 +218,26 @@ function clearSeasonLogo() {
 }
 
 function renderSeasonSelector() {
-    const select = document.getElementById('seasonSelect');
-    if (!select) return;
+    // Published season selector (what regular users see)
+    const publishedSelect = document.getElementById('seasonSelect');
+    if (publishedSelect) {
+        publishedSelect.innerHTML = seasons.map(s =>
+            `<option value="${s.id}" ${s.isActive ? 'selected' : ''}>${s.title}</option>`
+        ).join('');
+    }
 
-    select.innerHTML = seasons.map(s =>
-        `<option value="${s.id}" ${s.isActive ? 'selected' : ''}>${s.title}</option>`
-    ).join('');
+    // Viewing season selector (for admins to browse)
+    const viewingSelect = document.getElementById('viewingSeasonSelect');
+    if (viewingSelect) {
+        const viewingId = viewingSeason ? viewingSeason.id : (activeSeason ? activeSeason.id : '');
+        viewingSelect.innerHTML = seasons.map(s =>
+            `<option value="${s.id}" ${s.id === viewingId ? 'selected' : ''}>${s.title}</option>`
+        ).join('');
+    }
 }
 
-async function switchSeason() {
+// Set the published season (what regular users see)
+async function setPublishedSeason() {
     const select = document.getElementById('seasonSelect');
     const seasonId = select.value;
 
@@ -231,15 +262,37 @@ async function switchSeason() {
             renderAdminTeamsList();
             populateSubSearchWeeks();
 
-            alert('Switched to ' + activeSeason.title);
+            alert('Published season set to: ' + activeSeason.title);
         } else {
             const err = await res.json();
-            alert(err.error || 'Failed to switch season');
+            alert(err.error || 'Failed to set published season');
         }
     } catch (err) {
-        console.error('Switch season error:', err);
-        alert('Failed to switch season');
+        console.error('Set published season error:', err);
+        alert('Failed to set published season');
     }
+}
+
+// Switch the viewing season (admin only, doesn't affect users)
+async function switchViewingSeason() {
+    const select = document.getElementById('viewingSeasonSelect');
+    const seasonId = select.value;
+
+    viewingSeason = seasons.find(s => s.id === seasonId) || activeSeason;
+
+    // Reload data for the viewing season
+    await fetchTeams();
+    await fetchWeeks();
+    await fetchSubs();
+
+    renderSeasonSelector();
+    renderWeeksList();
+    renderTeamRoster();
+    renderSubPool();
+    renderAdminWeeksList();
+    renderAdminTeamsList();
+    populateSubSearchWeeks();
+    updateSeasonDisplay();
 }
 
 let editingSeasonId = null;
@@ -256,17 +309,18 @@ function showCreateSeasonModal() {
 }
 
 function showEditSeasonModal() {
-    if (!activeSeason) return;
-    editingSeasonId = activeSeason.id;
-    pendingSeasonLogo = activeSeason.logoUrl || '';
-    document.getElementById('seasonModalTitle').textContent = 'Edit Season';
-    document.getElementById('seasonNumber').value = activeSeason.number;
-    document.getElementById('seasonTitle').value = activeSeason.title;
+    const seasonToEdit = viewingSeason || activeSeason;
+    if (!seasonToEdit) return;
+    editingSeasonId = seasonToEdit.id;
+    pendingSeasonLogo = seasonToEdit.logoUrl || '';
+    document.getElementById('seasonModalTitle').textContent = 'Edit Season: ' + seasonToEdit.title;
+    document.getElementById('seasonNumber').value = seasonToEdit.number;
+    document.getElementById('seasonTitle').value = seasonToEdit.title;
     document.getElementById('seasonLogoInput').value = '';
 
     const previewEl = document.getElementById('seasonLogoPreview');
-    if (activeSeason.logoUrl) {
-        previewEl.src = activeSeason.logoUrl;
+    if (seasonToEdit.logoUrl) {
+        previewEl.src = seasonToEdit.logoUrl;
         previewEl.style.display = 'block';
     } else {
         previewEl.style.display = 'none';
@@ -324,10 +378,11 @@ async function saveSeason() {
     }
 }
 
-async function deleteCurrentSeason() {
-    if (!activeSeason) return;
+async function deleteViewingSeason() {
+    const seasonToDelete = viewingSeason || activeSeason;
+    if (!seasonToDelete) return;
 
-    if (!confirm(`Are you sure you want to delete "${activeSeason.title}"? This will delete ALL data for this season (teams, schedule, availability).`)) {
+    if (!confirm(`Are you sure you want to delete "${seasonToDelete.title}"? This will delete ALL data for this season (teams, schedule, availability).`)) {
         return;
     }
 
@@ -338,12 +393,13 @@ async function deleteCurrentSeason() {
     }
 
     try {
-        const res = await fetch(`/api/admin/seasons/${activeSeason.id}`, {
+        const res = await fetch(`/api/admin/seasons/${seasonToDelete.id}`, {
             method: 'DELETE',
             credentials: 'include'
         });
 
         if (res.ok) {
+            viewingSeason = null; // Reset viewing season
             await fetchSeasons();
             await fetchTeams();
             await fetchWeeks();
@@ -352,6 +408,7 @@ async function deleteCurrentSeason() {
             renderTeamRoster();
             renderAdminWeeksList();
             renderAdminTeamsList();
+            updateSeasonDisplay();
             alert('Season deleted');
         } else {
             const err = await res.json();
@@ -459,7 +516,12 @@ document.getElementById('logoutBtn')?.addEventListener('click', logout);
 
 async function fetchTeams() {
     try {
-        const res = await fetch('/api/teams');
+        let url = '/api/teams';
+        // Admins can view different seasons
+        if (currentUser && currentUser.isAdmin && viewingSeason) {
+            url += `?viewSeason=${viewingSeason.id}`;
+        }
+        const res = await fetch(url);
         if (res.ok) {
             teams = await res.json() || [];
         }
@@ -470,7 +532,12 @@ async function fetchTeams() {
 
 async function fetchWeeks() {
     try {
-        const res = await fetch('/api/weeks');
+        let url = '/api/weeks';
+        // Admins can view different seasons
+        if (currentUser && currentUser.isAdmin && viewingSeason) {
+            url += `?viewSeason=${viewingSeason.id}`;
+        }
+        const res = await fetch(url);
         if (res.ok) {
             weeks = await res.json() || [];
             // Also fetch user availability if logged in

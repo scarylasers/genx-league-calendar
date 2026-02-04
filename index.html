@@ -186,19 +186,25 @@
 
             <div class="admin-section season-management">
                 <h3>Season Management</h3>
-                <p>Create and switch between seasons. Each season has its own teams, schedule, availability data, and logo.</p>
+                <p>Manage seasons. "Published" is what regular users see. "Viewing" lets you browse other seasons for testing.</p>
 
                 <div class="season-controls">
                     <div class="current-season-box">
-                        <label>Active Season:</label>
-                        <select id="seasonSelect" onchange="switchSeason()">
+                        <label>Published Season (users see this):</label>
+                        <select id="seasonSelect" onchange="setPublishedSeason()">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="current-season-box">
+                        <label>Viewing Season (admin only):</label>
+                        <select id="viewingSeasonSelect" onchange="switchViewingSeason()">
                             <!-- Populated dynamically -->
                         </select>
                     </div>
                     <div class="season-actions">
                         <button class="btn btn-primary" onclick="showCreateSeasonModal()">+ New Season</button>
-                        <button class="btn btn-secondary" onclick="showEditSeasonModal()">Edit Season</button>
-                        <button class="btn btn-danger" onclick="deleteCurrentSeason()">Delete Season</button>
+                        <button class="btn btn-secondary" onclick="showEditSeasonModal()">Edit Viewing Season</button>
+                        <button class="btn btn-danger" onclick="deleteViewingSeason()">Delete Viewing Season</button>
                     </div>
                 </div>
 
