@@ -14,6 +14,7 @@
         <header class="header">
             <div class="header-left">
                 <img id="leagueLogo" class="league-logo" src="" alt="" style="display: none;">
+                <img id="seasonLogo" class="season-logo" src="" alt="" style="display: none;">
                 <div class="header-text">
                     <h1>GenX League</h1>
                     <p class="subtitle">Team Availability Tracker</p>
@@ -198,6 +199,17 @@
                         <button class="btn btn-primary" onclick="showCreateSeasonModal()">+ New Season</button>
                         <button class="btn btn-secondary" onclick="showEditSeasonModal()">Edit Season</button>
                         <button class="btn btn-danger" onclick="deleteCurrentSeason()">Delete Season</button>
+                    </div>
+                </div>
+
+                <div class="logo-upload-section">
+                    <h4>League Logo (GenX)</h4>
+                    <p class="import-hint">This logo appears on all seasons.</p>
+                    <div class="logo-upload-row">
+                        <img id="leagueLogoPreview" class="logo-preview" src="" alt="" style="display: none;">
+                        <input type="file" id="leagueLogoInput" accept="image/*,.gif" onchange="previewLeagueLogo(event)">
+                        <button class="btn btn-primary" onclick="uploadLeagueLogo()">Upload League Logo</button>
+                        <button class="btn btn-danger btn-small" onclick="removeLeagueLogo()">Remove</button>
                     </div>
                 </div>
             </div>
@@ -538,7 +550,7 @@ Example:
 
     <!-- Season Modal -->
     <div id="seasonModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content modal-large">
             <h3 id="seasonModalTitle">Create New Season</h3>
             <div class="form-row">
                 <label for="seasonNumber">Season Number:</label>
@@ -549,8 +561,12 @@ Example:
                 <input type="text" id="seasonTitle" placeholder="e.g., Season 5 - Spring 2025">
             </div>
             <div class="form-row">
-                <label for="seasonLogoUrl">Season Logo URL (optional):</label>
-                <input type="text" id="seasonLogoUrl" placeholder="https://example.com/season5-logo.png">
+                <label>Season Logo (optional):</label>
+                <div class="logo-upload-row">
+                    <img id="seasonLogoPreview" class="logo-preview" src="" alt="" style="display: none;">
+                    <input type="file" id="seasonLogoInput" accept="image/*,.gif" onchange="previewSeasonLogo(event)">
+                    <button type="button" class="btn btn-danger btn-small" onclick="clearSeasonLogo()">Clear</button>
+                </div>
             </div>
             <div class="modal-buttons">
                 <button class="btn btn-primary" onclick="saveSeason()">Save Season</button>

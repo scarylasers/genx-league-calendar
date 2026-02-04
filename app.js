@@ -22,6 +22,7 @@ async function init() {
     startETClock();
 
     await fetchSeasons();
+    await loadLeagueLogo();
     await checkAuth();
     await fetchTeams();
     await fetchWeeks();
@@ -60,14 +61,140 @@ function updateSeasonDisplay() {
         titleEl.textContent = activeSeason.title;
     }
 
-    // Update logo
-    const logoEl = document.getElementById('leagueLogo');
-    if (logoEl && activeSeason && activeSeason.logoUrl) {
-        logoEl.src = activeSeason.logoUrl;
-        logoEl.style.display = 'block';
-    } else if (logoEl) {
-        logoEl.style.display = 'none';
+    // Update season logo
+    const seasonLogoEl = document.getElementById('seasonLogo');
+    if (seasonLogoEl && activeSeason && activeSeason.logoUrl) {
+        seasonLogoEl.src = activeSeason.logoUrl;
+        seasonLogoEl.style.display = 'block';
+    } else if (seasonLogoEl) {
+        seasonLogoEl.style.display = 'none';
     }
+}
+
+// League logo (global)
+let leagueLogoData = '';
+
+async function loadLeagueLogo() {
+    try {
+        const res = await fetch('/api/league-logo');
+        if (res.ok) {
+            const data = await res.json();
+            leagueLogoData = data.logo || '';
+            const logoEl = document.getElementById('leagueLogo');
+            const previewEl = document.getElementById('leagueLogoPreview');
+
+            if (leagueLogoData) {
+                if (logoEl) {
+                    logoEl.src = leagueLogoData;
+                    logoEl.style.display = 'block';
+                }
+                if (previewEl) {
+                    previewEl.src = leagueLogoData;
+                    previewEl.style.display = 'block';
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load league logo:', err);
+    }
+}
+
+function previewLeagueLogo(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const previewEl = document.getElementById('leagueLogoPreview');
+        previewEl.src = e.target.result;
+        previewEl.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+async function uploadLeagueLogo() {
+    const fileInput = document.getElementById('leagueLogoInput');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert('Please select a file first');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        const logoData = e.target.result;
+
+        try {
+            const res = await fetch('/api/admin/league-logo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ logo: logoData })
+            });
+
+            if (res.ok) {
+                leagueLogoData = logoData;
+                const logoEl = document.getElementById('leagueLogo');
+                logoEl.src = logoData;
+                logoEl.style.display = 'block';
+                alert('League logo uploaded!');
+            } else {
+                const err = await res.json();
+                alert(err.error || 'Failed to upload logo');
+            }
+        } catch (err) {
+            console.error('Upload error:', err);
+            alert('Failed to upload logo');
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+async function removeLeagueLogo() {
+    if (!confirm('Remove the league logo?')) return;
+
+    try {
+        const res = await fetch('/api/admin/league-logo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ logo: '' })
+        });
+
+        if (res.ok) {
+            leagueLogoData = '';
+            document.getElementById('leagueLogo').style.display = 'none';
+            document.getElementById('leagueLogoPreview').style.display = 'none';
+            document.getElementById('leagueLogoInput').value = '';
+            alert('League logo removed');
+        }
+    } catch (err) {
+        console.error('Remove logo error:', err);
+    }
+}
+
+// Season logo upload
+let pendingSeasonLogo = '';
+
+function previewSeasonLogo(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        pendingSeasonLogo = e.target.result;
+        const previewEl = document.getElementById('seasonLogoPreview');
+        previewEl.src = pendingSeasonLogo;
+        previewEl.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearSeasonLogo() {
+    pendingSeasonLogo = '';
+    document.getElementById('seasonLogoInput').value = '';
+    document.getElementById('seasonLogoPreview').style.display = 'none';
 }
 
 function renderSeasonSelector() {
@@ -119,20 +246,31 @@ let editingSeasonId = null;
 
 function showCreateSeasonModal() {
     editingSeasonId = null;
+    pendingSeasonLogo = '';
     document.getElementById('seasonModalTitle').textContent = 'Create New Season';
     document.getElementById('seasonNumber').value = (seasons.length > 0 ? Math.max(...seasons.map(s => s.number)) + 1 : 1);
     document.getElementById('seasonTitle').value = '';
-    document.getElementById('seasonLogoUrl').value = '';
+    document.getElementById('seasonLogoInput').value = '';
+    document.getElementById('seasonLogoPreview').style.display = 'none';
     document.getElementById('seasonModal').classList.add('active');
 }
 
 function showEditSeasonModal() {
     if (!activeSeason) return;
     editingSeasonId = activeSeason.id;
+    pendingSeasonLogo = activeSeason.logoUrl || '';
     document.getElementById('seasonModalTitle').textContent = 'Edit Season';
     document.getElementById('seasonNumber').value = activeSeason.number;
     document.getElementById('seasonTitle').value = activeSeason.title;
-    document.getElementById('seasonLogoUrl').value = activeSeason.logoUrl || '';
+    document.getElementById('seasonLogoInput').value = '';
+
+    const previewEl = document.getElementById('seasonLogoPreview');
+    if (activeSeason.logoUrl) {
+        previewEl.src = activeSeason.logoUrl;
+        previewEl.style.display = 'block';
+    } else {
+        previewEl.style.display = 'none';
+    }
     document.getElementById('seasonModal').classList.add('active');
 }
 
@@ -143,7 +281,7 @@ function closeSeasonModal() {
 async function saveSeason() {
     const number = parseInt(document.getElementById('seasonNumber').value);
     const title = document.getElementById('seasonTitle').value.trim();
-    const logoUrl = document.getElementById('seasonLogoUrl').value.trim();
+    const logoUrl = pendingSeasonLogo; // Use the uploaded file data
 
     if (!title) {
         alert('Please enter a season title');

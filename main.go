@@ -2924,6 +2924,42 @@ func handleDeleteSeason(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
+// ==================== LOGO HANDLERS ====================
+
+func handleGetLeagueLogo(w http.ResponseWriter, r *http.Request) {
+	logo, _ := getSetting("league_logo")
+	writeJSON(w, http.StatusOK, map[string]string{"logo": logo})
+}
+
+func handleUploadLeagueLogo(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		Logo string `json:"logo"` // Base64 encoded image data URL
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate it's a data URL (basic check)
+	if body.Logo != "" && !strings.HasPrefix(body.Logo, "data:image/") {
+		writeError(w, http.StatusBadRequest, "Invalid image format")
+		return
+	}
+
+	if err := setSetting("league_logo", body.Logo); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
 func handleImportTeams(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
 	if session == nil || !session.IsAdmin {
@@ -3839,6 +3875,10 @@ func main() {
 	r.HandleFunc("/api/admin/seasons/{seasonId}", handleUpdateSeason).Methods("PUT")
 	r.HandleFunc("/api/admin/seasons/{seasonId}/activate", handleSetActiveSeason).Methods("POST")
 	r.HandleFunc("/api/admin/seasons/{seasonId}", handleDeleteSeason).Methods("DELETE")
+
+	// Logo routes
+	r.HandleFunc("/api/league-logo", handleGetLeagueLogo).Methods("GET")
+	r.HandleFunc("/api/admin/league-logo", handleUploadLeagueLogo).Methods("POST")
 
 	// Static files
 	r.PathPrefix("/").HandlerFunc(serveStatic)
