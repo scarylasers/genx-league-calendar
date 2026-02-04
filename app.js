@@ -2084,7 +2084,10 @@ function parseCSVLine(line) {
 
 function parseCSV(text) {
     const lines = text.trim().split(/\r?\n/);
-    return lines.map(line => parseCSVLine(line)).filter(row => row.length > 0 && row[0] !== '');
+    return lines.map(line => parseCSVLine(line)).filter(row => {
+        // Keep rows that have at least one non-empty cell
+        return row.length > 0 && row.some(cell => cell !== '');
+    });
 }
 
 async function handleTeamsFileUpload(event) {
