@@ -2025,7 +2025,9 @@ async function deleteAllTeams() {
     if (!confirm('Are you sure you want to delete ALL teams? This cannot be undone!')) {
         return;
     }
-    if (!confirm('This will delete all team data. Type "DELETE" to confirm.')) {
+    const confirmation = prompt('Type "DELETE" to confirm:');
+    if (confirmation !== 'DELETE') {
+        alert('Deletion cancelled - you must type DELETE exactly');
         return;
     }
 
@@ -2054,6 +2056,11 @@ async function deleteAllTeams() {
 // Delete all weeks
 async function deleteAllWeeks() {
     if (!confirm('Are you sure you want to delete ALL weeks/schedule? This cannot be undone!')) {
+        return;
+    }
+    const confirmation = prompt('Type "DELETE" to confirm:');
+    if (confirmation !== 'DELETE') {
+        alert('Deletion cancelled - you must type DELETE exactly');
         return;
     }
 
