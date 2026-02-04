@@ -7,6 +7,8 @@ let currentUser = null;
 let teams = [];
 let weeks = [];
 let subs = [];
+let seasons = [];
+let activeSeason = null;
 let userAvailability = {};
 let myTeam = null;
 let mySub = null; // If current user is registered as sub
@@ -19,13 +21,16 @@ async function init() {
     setupTabs();
     startETClock();
 
+    await fetchSeasons();
     await checkAuth();
     await fetchTeams();
     await fetchWeeks();
     await fetchSubs();
     await loadSubRules();
     await fetchRegisteredPlayers();
+    await loadLogo();
 
+    renderSeasonSelector();
     renderWeeksList();
     renderTeamRoster();
     renderSubPool();
@@ -33,6 +38,228 @@ async function init() {
 
     // Handle Discord link with week parameter
     handleWeekLinkParam();
+}
+
+// ==================== SEASONS ====================
+
+async function fetchSeasons() {
+    try {
+        const res = await fetch('/api/seasons');
+        if (res.ok) {
+            seasons = await res.json() || [];
+            activeSeason = seasons.find(s => s.isActive) || seasons[0];
+            updateSeasonDisplay();
+        }
+    } catch (err) {
+        console.error('Failed to fetch seasons:', err);
+    }
+}
+
+function updateSeasonDisplay() {
+    const titleEl = document.getElementById('currentSeasonTitle');
+    if (titleEl && activeSeason) {
+        titleEl.textContent = activeSeason.title;
+    }
+}
+
+function renderSeasonSelector() {
+    const select = document.getElementById('seasonSelect');
+    if (!select) return;
+
+    select.innerHTML = seasons.map(s =>
+        `<option value="${s.id}" ${s.isActive ? 'selected' : ''}>${s.title}</option>`
+    ).join('');
+}
+
+async function switchSeason() {
+    const select = document.getElementById('seasonSelect');
+    const seasonId = select.value;
+
+    try {
+        const res = await fetch(`/api/admin/seasons/${seasonId}/activate`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            // Reload all data for the new season
+            await fetchSeasons();
+            await fetchTeams();
+            await fetchWeeks();
+            await fetchSubs();
+
+            renderSeasonSelector();
+            renderWeeksList();
+            renderTeamRoster();
+            renderSubPool();
+            renderAdminWeeksList();
+            renderAdminTeamsList();
+            populateSubSearchWeeks();
+
+            alert('Switched to ' + activeSeason.title);
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to switch season');
+        }
+    } catch (err) {
+        console.error('Switch season error:', err);
+        alert('Failed to switch season');
+    }
+}
+
+let editingSeasonId = null;
+
+function showCreateSeasonModal() {
+    editingSeasonId = null;
+    document.getElementById('seasonModalTitle').textContent = 'Create New Season';
+    document.getElementById('seasonNumber').value = (seasons.length > 0 ? Math.max(...seasons.map(s => s.number)) + 1 : 1);
+    document.getElementById('seasonTitle').value = '';
+    document.getElementById('seasonModal').classList.add('active');
+}
+
+function showEditSeasonModal() {
+    if (!activeSeason) return;
+    editingSeasonId = activeSeason.id;
+    document.getElementById('seasonModalTitle').textContent = 'Edit Season';
+    document.getElementById('seasonNumber').value = activeSeason.number;
+    document.getElementById('seasonTitle').value = activeSeason.title;
+    document.getElementById('seasonModal').classList.add('active');
+}
+
+function closeSeasonModal() {
+    document.getElementById('seasonModal').classList.remove('active');
+}
+
+async function saveSeason() {
+    const number = parseInt(document.getElementById('seasonNumber').value);
+    const title = document.getElementById('seasonTitle').value.trim();
+
+    if (!title) {
+        alert('Please enter a season title');
+        return;
+    }
+
+    try {
+        let res;
+        if (editingSeasonId) {
+            // Update existing
+            res = await fetch(`/api/admin/seasons/${editingSeasonId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ number, title })
+            });
+        } else {
+            // Create new
+            res = await fetch('/api/admin/seasons', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ number, title })
+            });
+        }
+
+        if (res.ok) {
+            closeSeasonModal();
+            await fetchSeasons();
+            renderSeasonSelector();
+            updateSeasonDisplay();
+            alert(editingSeasonId ? 'Season updated!' : 'Season created!');
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to save season');
+        }
+    } catch (err) {
+        console.error('Save season error:', err);
+        alert('Failed to save season');
+    }
+}
+
+async function deleteCurrentSeason() {
+    if (!activeSeason) return;
+
+    if (!confirm(`Are you sure you want to delete "${activeSeason.title}"? This will delete ALL data for this season (teams, schedule, availability).`)) {
+        return;
+    }
+
+    const confirmation = prompt('Type "DELETE" to confirm:');
+    if (confirmation !== 'DELETE') {
+        alert('Deletion cancelled - you must type DELETE exactly');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/admin/seasons/${activeSeason.id}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (res.ok) {
+            await fetchSeasons();
+            await fetchTeams();
+            await fetchWeeks();
+            renderSeasonSelector();
+            renderWeeksList();
+            renderTeamRoster();
+            renderAdminWeeksList();
+            renderAdminTeamsList();
+            alert('Season deleted');
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Failed to delete season');
+        }
+    } catch (err) {
+        console.error('Delete season error:', err);
+        alert('Failed to delete season');
+    }
+}
+
+// ==================== LOGO ====================
+
+async function loadLogo() {
+    try {
+        const res = await fetch('/api/webhook');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.logoUrl) {
+                const logoEl = document.getElementById('leagueLogo');
+                logoEl.src = data.logoUrl;
+                logoEl.style.display = 'block';
+                document.getElementById('logoUrl').value = data.logoUrl;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load logo:', err);
+    }
+}
+
+async function saveLogo() {
+    const logoUrl = document.getElementById('logoUrl').value.trim();
+
+    try {
+        const res = await fetch('/api/webhook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ logoUrl })
+        });
+
+        if (res.ok) {
+            const logoEl = document.getElementById('leagueLogo');
+            if (logoUrl) {
+                logoEl.src = logoUrl;
+                logoEl.style.display = 'block';
+            } else {
+                logoEl.style.display = 'none';
+            }
+            alert('Logo saved!');
+        } else {
+            alert('Failed to save logo');
+        }
+    } catch (err) {
+        console.error('Save logo error:', err);
+        alert('Failed to save logo');
+    }
 }
 
 // ==================== AUTH ====================

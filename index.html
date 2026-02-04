@@ -12,11 +12,18 @@
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <div class="header-text">
-                <h1>GenX League</h1>
-                <p class="subtitle">Team Availability Tracker</p>
+            <div class="header-left">
+                <img id="leagueLogo" class="league-logo" src="" alt="" style="display: none;">
+                <div class="header-text">
+                    <h1>GenX League</h1>
+                    <p class="subtitle">Team Availability Tracker</p>
+                </div>
             </div>
             <div class="header-right">
+                <div class="season-display" id="seasonDisplay">
+                    <span class="season-label">Season:</span>
+                    <span id="currentSeasonTitle" class="season-title">--</span>
+                </div>
                 <div class="et-clock">
                     <span class="clock-label">Eastern Time:</span>
                     <span id="etClock" class="clock-time">--:--</span>
@@ -175,6 +182,31 @@
         <!-- Admin Tab (League Admins Only) -->
         <section id="admin" class="tab-content admin-only">
             <h2>League Admin</h2>
+
+            <div class="admin-section season-management">
+                <h3>Season Management</h3>
+                <p>Create and switch between seasons. Each season has its own teams, schedule, and availability data.</p>
+
+                <div class="season-controls">
+                    <div class="current-season-box">
+                        <label>Active Season:</label>
+                        <select id="seasonSelect" onchange="switchSeason()">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="season-actions">
+                        <button class="btn btn-primary" onclick="showCreateSeasonModal()">+ New Season</button>
+                        <button class="btn btn-secondary" onclick="showEditSeasonModal()">Edit Season</button>
+                        <button class="btn btn-danger" onclick="deleteCurrentSeason()">Delete Season</button>
+                    </div>
+                </div>
+
+                <div class="logo-settings">
+                    <label>League Logo URL (optional):</label>
+                    <input type="text" id="logoUrl" placeholder="https://example.com/logo.png" style="max-width: 400px;">
+                    <button class="btn btn-secondary" onclick="saveLogo()">Save Logo</button>
+                </div>
+            </div>
 
             <div class="admin-section">
                 <h3>Import from Published Spreadsheet URL</h3>
@@ -506,6 +538,25 @@ Example:
                     <button class="btn btn-secondary" onclick="closeEditTeamModal()">Cancel</button>
                     <button class="btn btn-danger" id="deleteTeamBtn" onclick="deleteTeam()" style="margin-left: auto;">Delete Team</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Season Modal -->
+    <div id="seasonModal" class="modal">
+        <div class="modal-content">
+            <h3 id="seasonModalTitle">Create New Season</h3>
+            <div class="form-row">
+                <label for="seasonNumber">Season Number:</label>
+                <input type="number" id="seasonNumber" placeholder="e.g., 5" min="1">
+            </div>
+            <div class="form-row">
+                <label for="seasonTitle">Season Title:</label>
+                <input type="text" id="seasonTitle" placeholder="e.g., Season 5 - Spring 2025">
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="saveSeason()">Save Season</button>
+                <button class="btn btn-secondary" onclick="closeSeasonModal()">Cancel</button>
             </div>
         </div>
     </div>

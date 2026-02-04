@@ -98,6 +98,13 @@ type RegisteredPlayer struct {
 	CompRank int    `json:"compRank"`
 }
 
+type Season struct {
+	ID       string `json:"id"`
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	IsActive bool   `json:"isActive"`
+}
+
 type User struct {
 	DiscordID   string `json:"discordId"`
 	Username    string `json:"username"`
@@ -217,11 +224,53 @@ func initDB() error {
 			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(sub_id, week_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS seasons (
+			id TEXT PRIMARY KEY,
+			number INTEGER NOT NULL,
+			title TEXT NOT NULL,
+			is_active BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+	}
+
+	// Run migrations for season_id columns
+	migrations := []string{
+		`ALTER TABLE teams ADD COLUMN IF NOT EXISTS season_id TEXT`,
+		`ALTER TABLE weeks ADD COLUMN IF NOT EXISTS season_id TEXT`,
+		`ALTER TABLE availability ADD COLUMN IF NOT EXISTS season_id TEXT`,
+		`ALTER TABLE sub_assignments ADD COLUMN IF NOT EXISTS season_id TEXT`,
 	}
 
 	for _, table := range tables {
 		if _, err := db.Exec(table); err != nil {
 			return fmt.Errorf("failed to create table: %v", err)
+		}
+	}
+
+	// Run migrations (safe to run multiple times due to IF NOT EXISTS)
+	for _, migration := range migrations {
+		if _, err := db.Exec(migration); err != nil {
+			log.Printf("Migration warning (may be expected): %v", err)
+		}
+	}
+
+	// Create default season if none exists
+	var seasonCount int
+	db.QueryRow("SELECT COUNT(*) FROM seasons").Scan(&seasonCount)
+	if seasonCount == 0 {
+		_, err := db.Exec(`
+			INSERT INTO seasons (id, number, title, is_active)
+			VALUES ('season-1', 1, 'Season 1', true)
+		`)
+		if err != nil {
+			log.Printf("Failed to create default season: %v", err)
+		} else {
+			// Assign existing data to default season
+			db.Exec("UPDATE teams SET season_id = 'season-1' WHERE season_id IS NULL")
+			db.Exec("UPDATE weeks SET season_id = 'season-1' WHERE season_id IS NULL")
+			db.Exec("UPDATE availability SET season_id = 'season-1' WHERE season_id IS NULL")
+			db.Exec("UPDATE sub_assignments SET season_id = 'season-1' WHERE season_id IS NULL")
+			log.Println("Created default season and assigned existing data")
 		}
 	}
 
@@ -257,6 +306,118 @@ func getTeamSetting(teamName, key string) (string, error) {
 func setTeamSetting(teamName, key, value string) error {
 	settingKey := fmt.Sprintf("team:%s:%s", teamName, key)
 	return setSetting(settingKey, value)
+}
+
+// ==================== SEASON FUNCTIONS ====================
+
+func getAllSeasons() ([]Season, error) {
+	rows, err := db.Query("SELECT id, number, title, is_active FROM seasons ORDER BY number DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var seasons []Season
+	for rows.Next() {
+		var s Season
+		if err := rows.Scan(&s.ID, &s.Number, &s.Title, &s.IsActive); err != nil {
+			continue
+		}
+		seasons = append(seasons, s)
+	}
+	return seasons, nil
+}
+
+func getActiveSeason() (*Season, error) {
+	var s Season
+	err := db.QueryRow("SELECT id, number, title, is_active FROM seasons WHERE is_active = true").
+		Scan(&s.ID, &s.Number, &s.Title, &s.IsActive)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func getSeasonByID(id string) (*Season, error) {
+	var s Season
+	err := db.QueryRow("SELECT id, number, title, is_active FROM seasons WHERE id = $1", id).
+		Scan(&s.ID, &s.Number, &s.Title, &s.IsActive)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func createSeason(s Season) error {
+	_, err := db.Exec(`
+		INSERT INTO seasons (id, number, title, is_active)
+		VALUES ($1, $2, $3, $4)
+	`, s.ID, s.Number, s.Title, s.IsActive)
+	return err
+}
+
+func updateSeason(s Season) error {
+	_, err := db.Exec(`
+		UPDATE seasons SET number = $2, title = $3, is_active = $4 WHERE id = $1
+	`, s.ID, s.Number, s.Title, s.IsActive)
+	return err
+}
+
+func setActiveSeason(seasonID string) error {
+	// Deactivate all seasons first
+	_, err := db.Exec("UPDATE seasons SET is_active = false")
+	if err != nil {
+		return err
+	}
+	// Activate the selected season
+	_, err = db.Exec("UPDATE seasons SET is_active = true WHERE id = $1", seasonID)
+	return err
+}
+
+func deleteSeason(id string) error {
+	// Check if it's the only season
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM seasons").Scan(&count)
+	if count <= 1 {
+		return fmt.Errorf("cannot delete the only season")
+	}
+
+	// Check if it's the active season
+	season, err := getSeasonByID(id)
+	if err != nil {
+		return err
+	}
+	if season != nil && season.IsActive {
+		return fmt.Errorf("cannot delete the active season")
+	}
+
+	// Delete the season and all related data
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	tx.Exec("DELETE FROM availability WHERE season_id = $1", id)
+	tx.Exec("DELETE FROM sub_assignments WHERE season_id = $1", id)
+	tx.Exec("DELETE FROM weeks WHERE season_id = $1", id)
+	tx.Exec("DELETE FROM teams WHERE season_id = $1", id)
+	tx.Exec("DELETE FROM seasons WHERE id = $1", id)
+
+	return tx.Commit()
+}
+
+func getActiveSeasonID() string {
+	season, _ := getActiveSeason()
+	if season != nil {
+		return season.ID
+	}
+	return "season-1" // fallback default
 }
 
 // ==================== GOOGLE SHEETS ====================
@@ -456,7 +617,8 @@ func startAutoSync(interval time.Duration) {
 // ==================== TEAM FUNCTIONS ====================
 
 func getAllTeams() ([]Team, error) {
-	rows, err := db.Query("SELECT id, name, players, subs FROM teams ORDER BY name")
+	seasonID := getActiveSeasonID()
+	rows, err := db.Query("SELECT id, name, players, subs FROM teams WHERE season_id = $1 OR season_id IS NULL ORDER BY name", seasonID)
 	if err != nil {
 		return nil, err
 	}
@@ -511,10 +673,11 @@ func getTeamByName(name string) (*Team, error) {
 func saveTeam(t Team) error {
 	playersJSON, _ := json.Marshal(t.Players)
 	subsJSON, _ := json.Marshal(t.Subs)
+	seasonID := getActiveSeasonID()
 	_, err := db.Exec(`
-		INSERT INTO teams (id, name, players, subs) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (id) DO UPDATE SET name = $2, players = $3, subs = $4
-	`, t.ID, t.Name, string(playersJSON), string(subsJSON))
+		INSERT INTO teams (id, name, players, subs, season_id) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (id) DO UPDATE SET name = $2, players = $3, subs = $4, season_id = $5
+	`, t.ID, t.Name, string(playersJSON), string(subsJSON), seasonID)
 	return err
 }
 
@@ -526,7 +689,8 @@ func deleteTeam(id string) error {
 // ==================== WEEK FUNCTIONS ====================
 
 func getAllWeeks() ([]Week, error) {
-	rows, err := db.Query("SELECT id, number, name, date, time, lobbies FROM weeks ORDER BY number")
+	seasonID := getActiveSeasonID()
+	rows, err := db.Query("SELECT id, number, name, date, time, lobbies FROM weeks WHERE season_id = $1 OR season_id IS NULL ORDER BY number", seasonID)
 	if err != nil {
 		return nil, err
 	}
@@ -550,10 +714,11 @@ func getAllWeeks() ([]Week, error) {
 
 func saveWeek(w Week) error {
 	lobbiesJSON, _ := json.Marshal(w.Lobbies)
+	seasonID := getActiveSeasonID()
 	_, err := db.Exec(`
-		INSERT INTO weeks (id, number, name, date, time, lobbies) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (id) DO UPDATE SET number = $2, name = $3, date = $4, time = $5, lobbies = $6
-	`, w.ID, w.Number, w.Name, w.Date, w.Time, string(lobbiesJSON))
+		INSERT INTO weeks (id, number, name, date, time, lobbies, season_id) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (id) DO UPDATE SET number = $2, name = $3, date = $4, time = $5, lobbies = $6, season_id = $7
+	`, w.ID, w.Number, w.Name, w.Date, w.Time, string(lobbiesJSON), seasonID)
 	return err
 }
 
@@ -1503,16 +1668,18 @@ func handleGetTeamWeekAvailability(w http.ResponseWriter, r *http.Request) {
 
 func handleGetWebhook(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
-	if session == nil || session.TeamID == "" {
-		writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
-		return
-	}
 
-	// Get team-specific webhook
-	webhook, _ := getTeamSetting(session.TeamID, "webhook")
-	response := map[string]interface{}{
-		"configured": webhook != "",
-		"webhookUrl": webhook,
+	response := map[string]interface{}{}
+
+	// Get global logo URL (available to everyone)
+	logoUrl, _ := getSetting("logo_url")
+	response["logoUrl"] = logoUrl
+
+	// Get team-specific webhook (only if logged in and linked)
+	if session != nil && session.TeamID != "" {
+		webhook, _ := getTeamSetting(session.TeamID, "webhook")
+		response["configured"] = webhook != ""
+		response["webhookUrl"] = webhook
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -1520,23 +1687,38 @@ func handleGetWebhook(w http.ResponseWriter, r *http.Request) {
 
 func handleSetWebhook(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
-	if session == nil || session.TeamID == "" {
-		writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
-		return
-	}
 
 	var body struct {
 		WebhookUrl string `json:"webhookUrl"`
+		LogoUrl    string `json:"logoUrl"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON")
 		return
 	}
 
-	// Save team-specific webhook
-	if err := setTeamSetting(session.TeamID, "webhook", body.WebhookUrl); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	// Handle logo URL (admin only, but stored globally)
+	if body.LogoUrl != "" || r.URL.Query().Get("clearLogo") == "true" {
+		if session == nil || !session.IsAdmin {
+			writeError(w, http.StatusForbidden, "Admin access required to set logo")
+			return
+		}
+		if err := setSetting("logo_url", body.LogoUrl); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// Handle team-specific webhook
+	if body.WebhookUrl != "" {
+		if session == nil || session.TeamID == "" {
+			writeError(w, http.StatusUnauthorized, "Must be logged in and linked to a team")
+			return
+		}
+		if err := setTeamSetting(session.TeamID, "webhook", body.WebhookUrl); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -2602,6 +2784,139 @@ func handleDeleteAllWeeks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ==================== SEASON HANDLERS ====================
+
+func handleGetSeasons(w http.ResponseWriter, r *http.Request) {
+	seasons, err := getAllSeasons()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, seasons)
+}
+
+func handleGetActiveSeason(w http.ResponseWriter, r *http.Request) {
+	season, err := getActiveSeason()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if season == nil {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, season)
+}
+
+func handleCreateSeason(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	var body struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if body.Title == "" {
+		writeError(w, http.StatusBadRequest, "Title is required")
+		return
+	}
+
+	season := Season{
+		ID:       fmt.Sprintf("season-%d", body.Number),
+		Number:   body.Number,
+		Title:    body.Title,
+		IsActive: false,
+	}
+
+	if err := createSeason(season); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, season)
+}
+
+func handleUpdateSeason(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	seasonID := vars["seasonId"]
+
+	var body struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	existing, err := getSeasonByID(seasonID)
+	if err != nil || existing == nil {
+		writeError(w, http.StatusNotFound, "Season not found")
+		return
+	}
+
+	existing.Number = body.Number
+	existing.Title = body.Title
+
+	if err := updateSeason(*existing); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, existing)
+}
+
+func handleSetActiveSeason(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	seasonID := vars["seasonId"]
+
+	if err := setActiveSeason(seasonID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	season, _ := getSeasonByID(seasonID)
+	writeJSON(w, http.StatusOK, season)
+}
+
+func handleDeleteSeason(w http.ResponseWriter, r *http.Request) {
+	session := getSessionFromRequest(r)
+	if session == nil || !session.IsAdmin {
+		writeError(w, http.StatusForbidden, "Admin access required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	seasonID := vars["seasonId"]
+
+	if err := deleteSeason(seasonID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
 func handleImportTeams(w http.ResponseWriter, r *http.Request) {
 	session := getSessionFromRequest(r)
 	if session == nil || !session.IsAdmin {
@@ -3509,6 +3824,14 @@ func main() {
 	r.HandleFunc("/api/admin/sync-status", handleGetSyncStatus).Methods("GET")
 	r.HandleFunc("/api/admin/import-from-url", handleImportFromURL).Methods("POST")
 	r.HandleFunc("/api/admin/import-from-html", handleImportFromHTML).Methods("POST")
+
+	// Season routes
+	r.HandleFunc("/api/seasons", handleGetSeasons).Methods("GET")
+	r.HandleFunc("/api/seasons/active", handleGetActiveSeason).Methods("GET")
+	r.HandleFunc("/api/admin/seasons", handleCreateSeason).Methods("POST")
+	r.HandleFunc("/api/admin/seasons/{seasonId}", handleUpdateSeason).Methods("PUT")
+	r.HandleFunc("/api/admin/seasons/{seasonId}/activate", handleSetActiveSeason).Methods("POST")
+	r.HandleFunc("/api/admin/seasons/{seasonId}", handleDeleteSeason).Methods("DELETE")
 
 	// Static files
 	r.PathPrefix("/").HandlerFunc(serveStatic)

@@ -2193,3 +2193,132 @@ body {
         margin-top: 10px;
     }
 }
+
+/* Season Management */
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.league-logo {
+    max-height: 60px;
+    max-width: 80px;
+    object-fit: contain;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.season-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 15px;
+    background: rgba(79, 70, 229, 0.15);
+    border: 1px solid var(--primary);
+    border-radius: 8px;
+}
+
+.season-label {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.season-title {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+.season-management {
+    background: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(99, 102, 241, 0.05) 100%);
+    border: 1px solid var(--primary);
+    border-radius: 10px;
+    padding: 20px;
+}
+
+.season-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.current-season-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.current-season-box label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.current-season-box select {
+    padding: 10px 15px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 1rem;
+    min-width: 200px;
+}
+
+.season-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.logo-settings {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
+}
+
+.logo-settings label {
+    color: var(--text-secondary);
+}
+
+.logo-settings input {
+    padding: 8px 12px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+@media (max-width: 768px) {
+    .season-controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .current-season-box {
+        width: 100%;
+    }
+
+    .current-season-box select {
+        flex: 1;
+    }
+
+    .logo-settings {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .logo-settings input {
+        width: 100%;
+    }
+}
