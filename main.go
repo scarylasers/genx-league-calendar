@@ -225,6 +225,15 @@ func initDB() error {
 			assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(sub_id, week_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_season_links (
+			id SERIAL PRIMARY KEY,
+			discord_id TEXT NOT NULL,
+			season_id TEXT NOT NULL,
+			team_id TEXT NOT NULL,
+			player_name TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(discord_id, season_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS seasons (
 			id TEXT PRIMARY KEY,
 			number INTEGER NOT NULL,
@@ -1123,6 +1132,53 @@ func saveUser(u User) error {
 	return err
 }
 
+// ==================== USER SEASON LINKS ====================
+
+type UserSeasonLink struct {
+	DiscordID  string `json:"discordId"`
+	SeasonID   string `json:"seasonId"`
+	TeamID     string `json:"teamId"`
+	PlayerName string `json:"playerName"`
+}
+
+func getUserSeasonLink(discordID string) (*UserSeasonLink, error) {
+	seasonID := getActiveSeasonID()
+	var link UserSeasonLink
+	err := db.QueryRow(`
+		SELECT discord_id, season_id, team_id, player_name
+		FROM user_season_links
+		WHERE discord_id = $1 AND season_id = $2
+	`, discordID, seasonID).Scan(&link.DiscordID, &link.SeasonID, &link.TeamID, &link.PlayerName)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func setUserSeasonLink(discordID, teamID, playerName string) error {
+	seasonID := getActiveSeasonID()
+	_, err := db.Exec(`
+		INSERT INTO user_season_links (discord_id, season_id, team_id, player_name)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (discord_id, season_id) DO UPDATE SET
+			team_id = $3, player_name = $4
+	`, discordID, seasonID, teamID, playerName)
+	return err
+}
+
+func clearUserSeasonLink(discordID string) error {
+	seasonID := getActiveSeasonID()
+	_, err := db.Exec(`
+		DELETE FROM user_season_links
+		WHERE discord_id = $1 AND season_id = $2
+	`, discordID, seasonID)
+	return err
+}
+
 // ==================== SESSION MANAGEMENT ====================
 
 func createSessionToken(session Session) (string, error) {
@@ -1387,20 +1443,17 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get team name from team ID
+	// Get season-specific team link
 	teamName := ""
-	if session.TeamID != "" {
-		team, _ := getTeamByID(session.TeamID)
-		if team != nil {
-			teamName = team.Name
-		} else {
-			// TeamID might be the team name itself
-			teamName = session.TeamID
-		}
+	playerName := ""
+	link, _ := getUserSeasonLink(session.DiscordID)
+	if link != nil {
+		teamName = link.TeamID // This is actually the team name
+		playerName = link.PlayerName
 	}
 
 	// Any linked team member can manage their team
-	canManageTeam := teamName != "" && session.PlayerName != ""
+	canManageTeam := teamName != "" && playerName != ""
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"authenticated": true,
@@ -1409,7 +1462,7 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		"displayName":   session.DisplayName,
 		"avatar":        session.Avatar,
 		"teamName":      teamName,
-		"playerName":    session.PlayerName,
+		"playerName":    playerName,
 		"isAdmin":       session.IsAdmin,
 		"canManageTeam": canManageTeam,
 	})
@@ -1442,19 +1495,13 @@ func handleLinkPlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update user in database
-	user, _ := getUserByDiscordID(session.DiscordID)
-	if user == nil {
-		writeError(w, http.StatusNotFound, "User not found")
+	// Save season-specific link
+	if err := setUserSeasonLink(session.DiscordID, body.TeamName, body.PlayerName); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Store team name as the team ID (we use names as identifiers)
-	user.TeamID = body.TeamName
-	user.PlayerName = body.PlayerName
-	saveUser(*user)
-
-	// Update session
+	// Update session for current request
 	session.TeamID = body.TeamName
 	session.PlayerName = body.PlayerName
 	token, _ := createSessionToken(*session)
