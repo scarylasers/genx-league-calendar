@@ -1877,7 +1877,27 @@ function escapeHtml(str) {
 
 function formatDate(dateStr) {
     if (!dateStr) return '';
-    const date = new Date(dateStr + 'T00:00:00');
+
+    // Try to parse various date formats
+    let date;
+
+    // Check if it's M/D/YYYY or MM/DD/YYYY format
+    const mdyMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mdyMatch) {
+        const month = parseInt(mdyMatch[1]) - 1; // JS months are 0-indexed
+        const day = parseInt(mdyMatch[2]);
+        const year = parseInt(mdyMatch[3]);
+        date = new Date(year, month, day);
+    } else {
+        // Try ISO format or other formats
+        date = new Date(dateStr + 'T00:00:00');
+    }
+
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+        return dateStr; // Return original string if can't parse
+    }
+
     return date.toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
@@ -2114,21 +2134,28 @@ async function handleTeamsFileUpload(event) {
         }
 
         // Convert to teams format
+        // Expected columns: Team Name, Player 1-5, Sub 1-4
         const teamsData = dataRows.map(row => {
-            const teamName = row[0];
+            const teamName = row[0]?.trim();
             if (!teamName) return null;
 
-            // Get all non-empty values after team name for players/subs
-            const allMembers = [];
-            for (let i = 1; i < row.length; i++) {
-                if (row[i] && row[i].trim()) {
-                    allMembers.push(row[i].trim());
+            // Players are in columns 1-5 (indices 1-5)
+            const players = [];
+            for (let i = 1; i <= 5 && i < row.length; i++) {
+                const player = row[i]?.trim();
+                if (player) {
+                    players.push(player);
                 }
             }
 
-            // First 5 are players, rest are subs
-            const players = allMembers.slice(0, 5);
-            const subs = allMembers.slice(5);
+            // Subs are in columns 6-9 (indices 6-9)
+            const subs = [];
+            for (let i = 6; i <= 9 && i < row.length; i++) {
+                const sub = row[i]?.trim();
+                if (sub) {
+                    subs.push(sub);
+                }
+            }
 
             return {
                 name: teamName,
