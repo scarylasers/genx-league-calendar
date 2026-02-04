@@ -102,6 +102,7 @@ type Season struct {
 	ID       string `json:"id"`
 	Number   int    `json:"number"`
 	Title    string `json:"title"`
+	LogoUrl  string `json:"logoUrl"`
 	IsActive bool   `json:"isActive"`
 }
 
@@ -228,6 +229,7 @@ func initDB() error {
 			id TEXT PRIMARY KEY,
 			number INTEGER NOT NULL,
 			title TEXT NOT NULL,
+			logo_url TEXT,
 			is_active BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -239,6 +241,7 @@ func initDB() error {
 		`ALTER TABLE weeks ADD COLUMN IF NOT EXISTS season_id TEXT`,
 		`ALTER TABLE availability ADD COLUMN IF NOT EXISTS season_id TEXT`,
 		`ALTER TABLE sub_assignments ADD COLUMN IF NOT EXISTS season_id TEXT`,
+		`ALTER TABLE seasons ADD COLUMN IF NOT EXISTS logo_url TEXT`,
 	}
 
 	for _, table := range tables {
@@ -311,7 +314,7 @@ func setTeamSetting(teamName, key, value string) error {
 // ==================== SEASON FUNCTIONS ====================
 
 func getAllSeasons() ([]Season, error) {
-	rows, err := db.Query("SELECT id, number, title, is_active FROM seasons ORDER BY number DESC")
+	rows, err := db.Query("SELECT id, number, title, COALESCE(logo_url, ''), is_active FROM seasons ORDER BY number DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +323,7 @@ func getAllSeasons() ([]Season, error) {
 	var seasons []Season
 	for rows.Next() {
 		var s Season
-		if err := rows.Scan(&s.ID, &s.Number, &s.Title, &s.IsActive); err != nil {
+		if err := rows.Scan(&s.ID, &s.Number, &s.Title, &s.LogoUrl, &s.IsActive); err != nil {
 			continue
 		}
 		seasons = append(seasons, s)
@@ -330,8 +333,8 @@ func getAllSeasons() ([]Season, error) {
 
 func getActiveSeason() (*Season, error) {
 	var s Season
-	err := db.QueryRow("SELECT id, number, title, is_active FROM seasons WHERE is_active = true").
-		Scan(&s.ID, &s.Number, &s.Title, &s.IsActive)
+	err := db.QueryRow("SELECT id, number, title, COALESCE(logo_url, ''), is_active FROM seasons WHERE is_active = true").
+		Scan(&s.ID, &s.Number, &s.Title, &s.LogoUrl, &s.IsActive)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -343,8 +346,8 @@ func getActiveSeason() (*Season, error) {
 
 func getSeasonByID(id string) (*Season, error) {
 	var s Season
-	err := db.QueryRow("SELECT id, number, title, is_active FROM seasons WHERE id = $1", id).
-		Scan(&s.ID, &s.Number, &s.Title, &s.IsActive)
+	err := db.QueryRow("SELECT id, number, title, COALESCE(logo_url, ''), is_active FROM seasons WHERE id = $1", id).
+		Scan(&s.ID, &s.Number, &s.Title, &s.LogoUrl, &s.IsActive)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -356,16 +359,16 @@ func getSeasonByID(id string) (*Season, error) {
 
 func createSeason(s Season) error {
 	_, err := db.Exec(`
-		INSERT INTO seasons (id, number, title, is_active)
-		VALUES ($1, $2, $3, $4)
-	`, s.ID, s.Number, s.Title, s.IsActive)
+		INSERT INTO seasons (id, number, title, logo_url, is_active)
+		VALUES ($1, $2, $3, $4, $5)
+	`, s.ID, s.Number, s.Title, s.LogoUrl, s.IsActive)
 	return err
 }
 
 func updateSeason(s Season) error {
 	_, err := db.Exec(`
-		UPDATE seasons SET number = $2, title = $3, is_active = $4 WHERE id = $1
-	`, s.ID, s.Number, s.Title, s.IsActive)
+		UPDATE seasons SET number = $2, title = $3, logo_url = $4, is_active = $5 WHERE id = $1
+	`, s.ID, s.Number, s.Title, s.LogoUrl, s.IsActive)
 	return err
 }
 
@@ -2816,8 +2819,9 @@ func handleCreateSeason(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		LogoUrl string `json:"logoUrl"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -2833,6 +2837,7 @@ func handleCreateSeason(w http.ResponseWriter, r *http.Request) {
 		ID:       fmt.Sprintf("season-%d", body.Number),
 		Number:   body.Number,
 		Title:    body.Title,
+		LogoUrl:  body.LogoUrl,
 		IsActive: false,
 	}
 
@@ -2855,8 +2860,9 @@ func handleUpdateSeason(w http.ResponseWriter, r *http.Request) {
 	seasonID := vars["seasonId"]
 
 	var body struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		LogoUrl string `json:"logoUrl"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -2871,6 +2877,7 @@ func handleUpdateSeason(w http.ResponseWriter, r *http.Request) {
 
 	existing.Number = body.Number
 	existing.Title = body.Title
+	existing.LogoUrl = body.LogoUrl
 
 	if err := updateSeason(*existing); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

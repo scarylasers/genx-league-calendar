@@ -28,7 +28,6 @@ async function init() {
     await fetchSubs();
     await loadSubRules();
     await fetchRegisteredPlayers();
-    await loadLogo();
 
     renderSeasonSelector();
     renderWeeksList();
@@ -59,6 +58,15 @@ function updateSeasonDisplay() {
     const titleEl = document.getElementById('currentSeasonTitle');
     if (titleEl && activeSeason) {
         titleEl.textContent = activeSeason.title;
+    }
+
+    // Update logo
+    const logoEl = document.getElementById('leagueLogo');
+    if (logoEl && activeSeason && activeSeason.logoUrl) {
+        logoEl.src = activeSeason.logoUrl;
+        logoEl.style.display = 'block';
+    } else if (logoEl) {
+        logoEl.style.display = 'none';
     }
 }
 
@@ -114,6 +122,7 @@ function showCreateSeasonModal() {
     document.getElementById('seasonModalTitle').textContent = 'Create New Season';
     document.getElementById('seasonNumber').value = (seasons.length > 0 ? Math.max(...seasons.map(s => s.number)) + 1 : 1);
     document.getElementById('seasonTitle').value = '';
+    document.getElementById('seasonLogoUrl').value = '';
     document.getElementById('seasonModal').classList.add('active');
 }
 
@@ -123,6 +132,7 @@ function showEditSeasonModal() {
     document.getElementById('seasonModalTitle').textContent = 'Edit Season';
     document.getElementById('seasonNumber').value = activeSeason.number;
     document.getElementById('seasonTitle').value = activeSeason.title;
+    document.getElementById('seasonLogoUrl').value = activeSeason.logoUrl || '';
     document.getElementById('seasonModal').classList.add('active');
 }
 
@@ -133,6 +143,7 @@ function closeSeasonModal() {
 async function saveSeason() {
     const number = parseInt(document.getElementById('seasonNumber').value);
     const title = document.getElementById('seasonTitle').value.trim();
+    const logoUrl = document.getElementById('seasonLogoUrl').value.trim();
 
     if (!title) {
         alert('Please enter a season title');
@@ -147,7 +158,7 @@ async function saveSeason() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ number, title })
+                body: JSON.stringify({ number, title, logoUrl })
             });
         } else {
             // Create new
@@ -155,7 +166,7 @@ async function saveSeason() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ number, title })
+                body: JSON.stringify({ number, title, logoUrl })
             });
         }
 
@@ -211,54 +222,6 @@ async function deleteCurrentSeason() {
     } catch (err) {
         console.error('Delete season error:', err);
         alert('Failed to delete season');
-    }
-}
-
-// ==================== LOGO ====================
-
-async function loadLogo() {
-    try {
-        const res = await fetch('/api/webhook');
-        if (res.ok) {
-            const data = await res.json();
-            if (data.logoUrl) {
-                const logoEl = document.getElementById('leagueLogo');
-                logoEl.src = data.logoUrl;
-                logoEl.style.display = 'block';
-                document.getElementById('logoUrl').value = data.logoUrl;
-            }
-        }
-    } catch (err) {
-        console.error('Failed to load logo:', err);
-    }
-}
-
-async function saveLogo() {
-    const logoUrl = document.getElementById('logoUrl').value.trim();
-
-    try {
-        const res = await fetch('/api/webhook', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ logoUrl })
-        });
-
-        if (res.ok) {
-            const logoEl = document.getElementById('leagueLogo');
-            if (logoUrl) {
-                logoEl.src = logoUrl;
-                logoEl.style.display = 'block';
-            } else {
-                logoEl.style.display = 'none';
-            }
-            alert('Logo saved!');
-        } else {
-            alert('Failed to save logo');
-        }
-    } catch (err) {
-        console.error('Save logo error:', err);
-        alert('Failed to save logo');
     }
 }
 

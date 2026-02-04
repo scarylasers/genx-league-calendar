@@ -185,7 +185,7 @@
 
             <div class="admin-section season-management">
                 <h3>Season Management</h3>
-                <p>Create and switch between seasons. Each season has its own teams, schedule, and availability data.</p>
+                <p>Create and switch between seasons. Each season has its own teams, schedule, availability data, and logo.</p>
 
                 <div class="season-controls">
                     <div class="current-season-box">
@@ -199,12 +199,6 @@
                         <button class="btn btn-secondary" onclick="showEditSeasonModal()">Edit Season</button>
                         <button class="btn btn-danger" onclick="deleteCurrentSeason()">Delete Season</button>
                     </div>
-                </div>
-
-                <div class="logo-settings">
-                    <label>League Logo URL (optional):</label>
-                    <input type="text" id="logoUrl" placeholder="https://example.com/logo.png" style="max-width: 400px;">
-                    <button class="btn btn-secondary" onclick="saveLogo()">Save Logo</button>
                 </div>
             </div>
 
@@ -553,6 +547,10 @@ Example:
             <div class="form-row">
                 <label for="seasonTitle">Season Title:</label>
                 <input type="text" id="seasonTitle" placeholder="e.g., Season 5 - Spring 2025">
+            </div>
+            <div class="form-row">
+                <label for="seasonLogoUrl">Season Logo URL (optional):</label>
+                <input type="text" id="seasonLogoUrl" placeholder="https://example.com/season5-logo.png">
             </div>
             <div class="modal-buttons">
                 <button class="btn btn-primary" onclick="saveSeason()">Save Season</button>
