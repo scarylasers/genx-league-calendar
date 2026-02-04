@@ -901,10 +901,11 @@ func clearRegisteredPlayers() error {
 
 func getUserByDiscordID(discordID string) (*User, error) {
 	var u User
+	var teamID, playerName, displayName, avatar sql.NullString
 	err := db.QueryRow(`
 		SELECT discord_id, username, display_name, avatar, team_id, player_name, is_admin, is_manager
 		FROM users WHERE discord_id = $1
-	`, discordID).Scan(&u.DiscordID, &u.Username, &u.DisplayName, &u.Avatar, &u.TeamID, &u.PlayerName, &u.IsAdmin, &u.IsManager)
+	`, discordID).Scan(&u.DiscordID, &u.Username, &displayName, &avatar, &teamID, &playerName, &u.IsAdmin, &u.IsManager)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -912,6 +913,11 @@ func getUserByDiscordID(discordID string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	u.DisplayName = displayName.String
+	u.Avatar = avatar.String
+	u.TeamID = teamID.String
+	u.PlayerName = playerName.String
 	return &u, nil
 }
 
