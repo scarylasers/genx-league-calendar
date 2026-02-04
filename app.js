@@ -2189,10 +2189,16 @@ async function handleScheduleFileUpload(event) {
 
         let weeksData = [];
 
-        // Check if this is GenX Scoring Sheet format (has "Round" and "Group" patterns)
-        const isGenXFormat = rows.some(row => row[1]?.includes('Round') || row[1]?.includes('Group'));
+        // Check if this is GenX Groups format (first column has Round, Group, Session, Date, etc.)
+        const isGenXGroupsFormat = rows[0]?.[0] === 'Round' && rows[1]?.[0] === 'Group';
 
-        if (isGenXFormat) {
+        // Check if this is GenX Scoring Sheet format (has "Round" and "Group" in column B)
+        const isGenXScoringFormat = rows.some(row => row[1]?.includes('Round') || row[1]?.includes('Group'));
+
+        if (isGenXGroupsFormat) {
+            // Parse GenX Groups format (columns are lobbies)
+            weeksData = parseGenXGroupsSheet(rows);
+        } else if (isGenXScoringFormat) {
             // Parse GenX Scoring Sheet format
             weeksData = parseGenXScoringSheet(rows, file.name);
         } else {
@@ -2263,6 +2269,81 @@ async function handleScheduleFileUpload(event) {
     }
 
     event.target.value = '';
+}
+
+// Parse GenX Groups Sheet format (columns are lobbies)
+// Format:
+// Row 0: Round - 1,1,1,1,1,2,2,2,2,2,...
+// Row 1: Group - 1,2,3,4,5,1,2,3,4,5,...
+// Row 2: Session - Sunday @ 9pm, Wednesday @ 9pm,...
+// Row 3: Date - 5/4/2025, 5/11/2025,...
+// Row 4: Lobby Host
+// Row 5: Streamer
+// Row 6: Team Name 1
+// Row 7: Team Name 2
+// Row 8: Team Name 3
+// Row 9: Team Name 4
+function parseGenXGroupsSheet(rows) {
+    const weekMap = new Map();
+
+    // Each column (starting from 1) is a lobby
+    const numColumns = Math.max(...rows.map(r => r.length));
+
+    for (let col = 1; col < numColumns; col++) {
+        const round = rows[0]?.[col]?.trim();
+        const group = rows[1]?.[col]?.trim();
+        const session = rows[2]?.[col]?.trim();
+        const date = rows[3]?.[col]?.trim();
+        const host = rows[4]?.[col]?.trim() || '';
+        const streamer = rows[5]?.[col]?.trim() || '';
+
+        // Get teams (rows 6-9, or look for "Team Name" rows)
+        const teams = [];
+        for (let row = 6; row <= 9; row++) {
+            const teamName = rows[row]?.[col]?.trim();
+            if (teamName && teamName !== '') {
+                teams.push(teamName);
+            }
+        }
+
+        // Skip if no round or no teams
+        if (!round || teams.length === 0) continue;
+
+        const weekName = `Week ${round}`;
+        const weekId = `week-${round}`;
+
+        if (!weekMap.has(weekId)) {
+            weekMap.set(weekId, {
+                id: weekId,
+                name: weekName,
+                number: parseInt(round) || 1,
+                lobbies: []
+            });
+        }
+
+        weekMap.get(weekId).lobbies.push({
+            name: `Group ${group}`,
+            teams: teams,
+            host: host,
+            streamer: streamer,
+            time: session,
+            date: date
+        });
+    }
+
+    // Convert to array and sort by week number
+    const weeksArray = Array.from(weekMap.values());
+    weeksArray.sort((a, b) => a.number - b.number);
+
+    // Set the date/time on the week level from the first lobby
+    weeksArray.forEach(week => {
+        if (week.lobbies.length > 0) {
+            week.date = week.lobbies[0].date || '';
+            week.time = week.lobbies[0].time || '';
+        }
+    });
+
+    return weeksArray;
 }
 
 // Parse GenX Scoring Sheet format
